@@ -1,0 +1,768 @@
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import { COOKIE_NAME } from "@shared/const";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { systemRouter } from "./_core/systemRouter";
+import { publicProcedure, router } from "./_core/trpc";
+import * as db from "./db";
+import { invokeLLM } from "./_core/llm";
+import { storagePut } from "./storage";
+import * as mockData from "./mockData";
+
+// 创建受保护的过程 - 需要登录
+const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (!ctx.user) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "请先登录" });
+  }
+  return next({ ctx: { ...ctx, user: ctx.user } });
+});
+
+// 创建教师权限过程
+const teacherProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "需要教师权限" });
+  }
+  return next({ ctx });
+});
+
+// 创建管理员权限过程
+const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "需要管理员权限" });
+  }
+  return next({ ctx });
+});
+
+export const appRouter = router({
+  system: systemRouter,
+  
+  auth: router({
+    me: publicProcedure.query(opts => opts.ctx.user),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+  }),
+
+  // ==================== 用户管理 ====================
+  users: router({
+    list: adminProcedure.query(async () => {
+      return await db.getAllUsers();
+    }),
+    
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getUserById(input.id);
+      }),
+    
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        email: z.string().email().optional(),
+        phone: z.string().optional(),
+        avatar: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (input.id !== ctx.user.id && ctx.user.role !== 'admin') {
+          throw new TRPCError({ code: "FORBIDDEN", message: "只能修改自己的信息" });
+        }
+        await db.updateUser(input.id, input);
+        return { success: true };
+      }),
+
+    batchImportStudents: teacherProcedure
+      .input(z.object({
+        students: z.array(z.object({
+          studentId: z.string(),
+          name: z.string(),
+          email: z.string().email().optional(),
+          classId: z.number().optional(),
+          major: z.string().optional(),
+          enrollmentYear: z.number().optional(),
+        }))
+      }))
+      .mutation(async ({ input }) => {
+        const results = [];
+        for (const studentData of input.students) {
+          // 创建用户账号
+          const openId = `student_${studentData.studentId}_${Date.now()}`;
+          await db.upsertUser({
+            openId,
+            name: studentData.name,
+            email: studentData.email,
+            role: 'student',
+          });
+          
+          const user = await db.getUserByOpenId(openId);
+          if (user) {
+            await db.createStudent({
+              userId: user.id,
+              studentId: studentData.studentId,
+              classId: studentData.classId,
+              major: studentData.major,
+              enrollmentYear: studentData.enrollmentYear,
+            });
+            results.push({ success: true, studentId: studentData.studentId });
+          }
+        }
+        return { results };
+      }),
+  }),
+
+  // ==================== 教师管理 ====================
+  teachers: router({
+    getProfile: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getTeacherByUserId(ctx.user.id);
+    }),
+  }),
+
+  // ==================== 班级管理 ====================
+  classes: router({
+    list: protectedProcedure.query(async () => {
+      const dbClasses = await db.listClasses();
+      return dbClasses.length > 0 ? dbClasses : mockData.mockClasses;
+    }),
+  }),
+
+  // ==================== 学生管理 ====================
+  students: router({
+    getProfile: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getStudentByUserId(ctx.user.id);
+    }),
+    
+    getByClassId: teacherProcedure
+      .input(z.object({ classId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getStudentsByClassId(input.classId);
+      }),
+  }),
+
+  // ==================== 班级管理 ====================
+  // (classes router already defined above, removing duplicate)
+  
+  // ==================== 课程管理 ====================
+  courses: router({
+    list: protectedProcedure.query(async () => {
+      // 优先使用mock数据,如果数据库有数据则使用数据库
+      const dbCourses = await db.getCourses ? await db.getCourses() : [];
+      return dbCourses.length > 0 ? dbCourses : mockData.mockCourses;
+    }),
+    
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getCourseById(input.id);
+      }),
+    
+    create: teacherProcedure
+      .input(z.object({
+        name: z.string(),
+        grade: z.number().optional(),
+        major: z.string().optional(),
+        headTeacherId: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.createClass(input);
+        return { success: true };
+      }),
+    
+    update: teacherProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        grade: z.number().optional(),
+        major: z.string().optional(),
+        headTeacherId: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateClass(id, data);
+        return { success: true };
+      }),
+    
+    delete: teacherProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteClass(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ==================== 课程管理 ====================
+  courses: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role === 'teacher') {
+        const teacher = await db.getTeacherByUserId(ctx.user.id);
+        if (teacher) {
+          return await db.getCoursesByTeacherId(teacher.id);
+        }
+        return [];
+      }
+      return await db.getAllCourses();
+    }),
+    
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getCourseById(input.id);
+      }),
+    
+    create: teacherProcedure
+      .input(z.object({
+        name: z.string(),
+        code: z.string(),
+        description: z.string().optional(),
+        syllabus: z.string().optional(),
+        credits: z.number().optional(),
+        status: z.enum(['draft', 'active', 'archived']).default('draft'),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const teacher = await db.getTeacherByUserId(ctx.user.id);
+        if (!teacher) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "教师信息不存在" });
+        }
+        await db.createCourse({ ...input, teacherId: teacher.id });
+        return { success: true };
+      }),
+    
+    update: teacherProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        code: z.string().optional(),
+        description: z.string().optional(),
+        syllabus: z.string().optional(),
+        credits: z.number().optional(),
+        status: z.enum(['draft', 'active', 'archived']).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateCourse(id, data);
+        return { success: true };
+      }),
+    
+    delete: teacherProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteCourse(input.id);
+        return { success: true };
+      }),
+    
+    search: protectedProcedure
+      .input(z.object({ keyword: z.string() }))
+      .query(async ({ input }) => {
+        return await db.searchCourses(input.keyword);
+      }),
+    
+    linkToClass: teacherProcedure
+      .input(z.object({
+        courseId: z.number(),
+        classId: z.number(),
+        semester: z.string().optional(),
+        year: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.linkCourseToClass(input.courseId, input.classId, input.semester, input.year);
+        return { success: true };
+      }),
+    
+    getClasses: protectedProcedure
+      .input(z.object({ courseId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getCourseClasses(input.courseId);
+      }),
+  }),
+
+  // ==================== 作业管理 ====================
+  assignments: router({
+    list: protectedProcedure
+      .input(z.object({ courseId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getAssignmentsByCourseId(input.courseId);
+      }),
+    
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getAssignmentById(input.id);
+      }),
+    
+    create: teacherProcedure
+      .input(z.object({
+        courseId: z.number(),
+        classId: z.number(),
+        title: z.string(),
+        description: z.string().optional(),
+        requirements: z.string().optional(),
+        dueDate: z.date(),
+        status: z.enum(['draft', 'published', 'closed']).default('draft'),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const teacher = await db.getTeacherByUserId(ctx.user.id);
+        if (!teacher) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "教师信息不存在" });
+        }
+        await db.createAssignment({ ...input, createdBy: teacher.id });
+        return { success: true };
+      }),
+    
+    update: teacherProcedure
+      .input(z.object({
+        id: z.number(),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        requirements: z.string().optional(),
+        dueDate: z.date().optional(),
+        status: z.enum(['draft', 'published', 'closed']).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateAssignment(id, data);
+        return { success: true };
+      }),
+    
+    delete: teacherProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteAssignment(input.id);
+        return { success: true };
+      }),
+    
+    submit: protectedProcedure
+      .input(z.object({
+        assignmentId: z.number(),
+        content: z.string().optional(),
+        fileUrl: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const student = await db.getStudentByUserId(ctx.user.id);
+        if (!student) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "学生信息不存在" });
+        }
+        await db.submitAssignment({
+          assignmentId: input.assignmentId,
+          studentId: student.id,
+          content: input.content,
+          fileUrl: input.fileUrl,
+          submittedAt: new Date(),
+          status: 'submitted',
+        });
+        return { success: true };
+      }),
+    
+    getSubmissions: teacherProcedure
+      .input(z.object({ assignmentId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getSubmissionsByAssignmentId(input.assignmentId);
+      }),
+    
+    getMySubmission: protectedProcedure
+      .input(z.object({ assignmentId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const student = await db.getStudentByUserId(ctx.user.id);
+        if (!student) return null;
+        return await db.getSubmissionByStudentAndAssignment(student.id, input.assignmentId);
+      }),
+    
+    grade: teacherProcedure
+      .input(z.object({
+        submissionId: z.number(),
+        score: z.number(),
+        feedback: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const teacher = await db.getTeacherByUserId(ctx.user.id);
+        if (!teacher) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "教师信息不存在" });
+        }
+        await db.gradeSubmission(input.submissionId, input.score, input.feedback || '', teacher.id);
+        return { success: true };
+      }),
+  }),
+
+  // ==================== 题库管理 ====================
+  questions: router({
+    createType: teacherProcedure
+      .input(z.object({
+        courseId: z.number(),
+        name: z.string(),
+        description: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.createQuestionType(input);
+        return { success: true };
+      }),
+    
+    getTypes: protectedProcedure
+      .input(z.object({ courseId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getQuestionTypesByCourseId(input.courseId);
+      }),
+    
+    create: teacherProcedure
+      .input(z.object({
+        questionTypeId: z.number(),
+        courseId: z.number(),
+        title: z.string(),
+        content: z.string().optional(),
+        options: z.any().optional(),
+        answer: z.string(),
+        analysis: z.string().optional(),
+        difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const teacher = await db.getTeacherByUserId(ctx.user.id);
+        if (!teacher) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "教师信息不存在" });
+        }
+        await db.createQuestion({ ...input, createdBy: teacher.id });
+        return { success: true };
+      }),
+    
+    listByType: protectedProcedure
+      .input(z.object({ questionTypeId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getQuestionsByTypeId(input.questionTypeId);
+      }),
+    
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getQuestionById(input.id);
+      }),
+    
+    update: teacherProcedure
+      .input(z.object({
+        id: z.number(),
+        title: z.string().optional(),
+        content: z.string().optional(),
+        options: z.any().optional(),
+        answer: z.string().optional(),
+        analysis: z.string().optional(),
+        difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateQuestion(id, data);
+        return { success: true };
+      }),
+    
+    delete: teacherProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteQuestion(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ==================== 考试管理 ====================
+  exams: router({
+    list: protectedProcedure
+      .input(z.object({ courseId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getExamsByCourseId(input.courseId);
+      }),
+    
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getExamById(input.id);
+      }),
+    
+    create: teacherProcedure
+      .input(z.object({
+        courseId: z.number(),
+        classId: z.number(),
+        title: z.string(),
+        description: z.string().optional(),
+        duration: z.number(),
+        startTime: z.date(),
+        endTime: z.date(),
+        totalScore: z.number().default(100),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const teacher = await db.getTeacherByUserId(ctx.user.id);
+        if (!teacher) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "教师信息不存在" });
+        }
+        await db.createExam({ ...input, createdBy: teacher.id, status: 'not_started' });
+        return { success: true };
+      }),
+    
+    update: teacherProcedure
+      .input(z.object({
+        id: z.number(),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        duration: z.number().optional(),
+        startTime: z.date().optional(),
+        endTime: z.date().optional(),
+        status: z.enum(['not_started', 'in_progress', 'ended']).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateExam(id, data);
+        return { success: true };
+      }),
+    
+    addQuestion: teacherProcedure
+      .input(z.object({
+        examId: z.number(),
+        questionId: z.number(),
+        score: z.number(),
+        order: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.addQuestionToExam(input.examId, input.questionId, input.score, input.order);
+        return { success: true };
+      }),
+    
+    getQuestions: protectedProcedure
+      .input(z.object({ examId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getExamQuestions(input.examId);
+      }),
+    
+    startExam: protectedProcedure
+      .input(z.object({ examId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const student = await db.getStudentByUserId(ctx.user.id);
+        if (!student) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "学生信息不存在" });
+        }
+        await db.createExamAnswer(input.examId, student.id);
+        return { success: true };
+      }),
+    
+    getMyAnswer: protectedProcedure
+      .input(z.object({ examId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const student = await db.getStudentByUserId(ctx.user.id);
+        if (!student) return null;
+        return await db.getExamAnswerByStudentAndExam(student.id, input.examId);
+      }),
+    
+    saveAnswer: protectedProcedure
+      .input(z.object({
+        examAnswerId: z.number(),
+        questionId: z.number(),
+        answer: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.saveExamAnswerDetail(input.examAnswerId, input.questionId, input.answer);
+        return { success: true };
+      }),
+    
+    submitExam: protectedProcedure
+      .input(z.object({ examAnswerId: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.submitExamAnswer(input.examAnswerId);
+        return { success: true };
+      }),
+  }),
+
+  // ==================== 实验管理 ====================
+  experiments: router({
+    list: protectedProcedure
+      .input(z.object({ courseId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getExperimentsByCourseId(input.courseId);
+      }),
+    
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getExperimentById(input.id);
+      }),
+    
+    create: teacherProcedure
+      .input(z.object({
+        courseId: z.number(),
+        classId: z.number(),
+        title: z.string(),
+        description: z.string().optional(),
+        requirements: z.string().optional(),
+        dueDate: z.date(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const teacher = await db.getTeacherByUserId(ctx.user.id);
+        if (!teacher) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "教师信息不存在" });
+        }
+        await db.createExperiment({ ...input, createdBy: teacher.id, status: 'draft' });
+        return { success: true };
+      }),
+    
+    submit: protectedProcedure
+      .input(z.object({
+        experimentId: z.number(),
+        code: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const student = await db.getStudentByUserId(ctx.user.id);
+        if (!student) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "学生信息不存在" });
+        }
+        await db.submitExperiment({
+          experimentId: input.experimentId,
+          studentId: student.id,
+          code: input.code,
+          submittedAt: new Date(),
+          status: 'submitted',
+        });
+        return { success: true };
+      }),
+    
+    getSubmissions: teacherProcedure
+      .input(z.object({ experimentId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getExperimentSubmissions(input.experimentId);
+      }),
+  }),
+
+  // ==================== 知识图谱 ====================
+  knowledge: router({
+    createChapter: teacherProcedure
+      .input(z.object({
+        courseId: z.number(),
+        title: z.string(),
+        description: z.string().optional(),
+        order: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.createChapter({ ...input, chapterOrder: input.order });
+        return { success: true };
+      }),
+    
+    getChapters: protectedProcedure
+      .input(z.object({ courseId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getChaptersByCourseId(input.courseId);
+      }),
+    
+    createPoint: teacherProcedure
+      .input(z.object({
+        courseId: z.number(),
+        chapterId: z.number().optional(),
+        name: z.string(),
+        description: z.string().optional(),
+        order: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.createKnowledgePoint({ ...input, kpOrder: input.order });
+        return { success: true };
+      }),
+    
+    getPoints: protectedProcedure
+      .input(z.object({ chapterId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getKnowledgePointsByChapterId(input.chapterId);
+      }),
+    
+    linkPoint: teacherProcedure
+      .input(z.object({
+        knowledgePointId: z.number(),
+        assignmentId: z.number().optional(),
+        examId: z.number().optional(),
+        experimentId: z.number().optional(),
+        questionId: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.linkKnowledgePoint(input);
+        return { success: true };
+      }),
+  }),
+
+  // ==================== AI助教 ====================
+  ai: router({
+    createConversation: protectedProcedure
+      .input(z.object({
+        assignmentId: z.number().optional(),
+        questionId: z.number().optional(),
+        title: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const student = await db.getStudentByUserId(ctx.user.id);
+        if (!student) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "学生信息不存在" });
+        }
+        await db.createConversation(student.id, input.assignmentId, input.questionId, input.title);
+        return { success: true };
+      }),
+    
+    getConversations: protectedProcedure.query(async ({ ctx }) => {
+      const student = await db.getStudentByUserId(ctx.user.id);
+      if (!student) return [];
+      return await db.getConversationsByStudentId(student.id);
+    }),
+    
+    getMessages: protectedProcedure
+      .input(z.object({ conversationId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getMessagesByConversationId(input.conversationId);
+      }),
+    
+    sendMessage: protectedProcedure
+      .input(z.object({
+        conversationId: z.number(),
+        message: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        // 保存用户消息
+        await db.addMessage(input.conversationId, 'user', input.message);
+        
+        // 调用LLM获取回复
+        const response = await invokeLLM({
+          messages: [
+            { role: 'system', content: '你是一个专业的教学助手，帮助学生理解课程内容和解答问题。请用简洁清晰的语言回答。' },
+            { role: 'user', content: input.message }
+          ]
+        });
+        
+        const aiReply = typeof response.choices[0]?.message?.content === 'string' 
+          ? response.choices[0].message.content 
+          : '抱歉，我现在无法回答。';
+        
+        // 保存AI回复
+        await db.addMessage(input.conversationId, 'assistant', aiReply);
+        
+        return { reply: aiReply };
+      }),
+    
+    analyzeAssignment: protectedProcedure
+      .input(z.object({ assignmentId: z.number() }))
+      .mutation(async ({ input }) => {
+        const assignment = await db.getAssignmentById(input.assignmentId);
+        if (!assignment) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "作业不存在" });
+        }
+        
+        const response = await invokeLLM({
+          messages: [
+            { role: 'system', content: '你是一个专业的教学助手。请分析以下作业题目，提供解题思路和关键知识点。' },
+            { role: 'user', content: `作业标题：${assignment.title}\n\n作业要求：${assignment.requirements || assignment.description}` }
+          ]
+        });
+        
+        return { analysis: response.choices[0]?.message?.content || '暂无分析' };
+      }),
+  }),
+
+  // ==================== 文件上传 ====================
+  upload: router({
+    getUploadUrl: protectedProcedure
+      .input(z.object({
+        filename: z.string(),
+        contentType: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const key = `uploads/${ctx.user.id}/${Date.now()}_${input.filename}`;
+        return { key, uploadUrl: `/api/upload/${key}` };
+      }),
+  }),
+});
+
+export type AppRouter = typeof appRouter;

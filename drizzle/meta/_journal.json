@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1767080196659,
+      "tag": "0000_parallel_secret_warriors",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1767080351180,
+      "tag": "0001_narrow_bloodstorm",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1767086929172,
+      "tag": "0002_true_thena",
+      "breakpoints": true
+    }
+  ]
+}
