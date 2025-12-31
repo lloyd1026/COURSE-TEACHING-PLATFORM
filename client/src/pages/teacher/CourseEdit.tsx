@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { useLocation, Link } from "wouter";
+import { useState, useEffect, useMemo } from "react";
+import { useParams, useLocation, Link } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Sparkles, BookOpen, GraduationCap, Calendar, ShieldCheck, Zap, Layers } from "lucide-react";
+import { ArrowLeft, Loader2, Save, BookOpen, Settings2, ShieldCheck, Layers } from "lucide-react";
 
 // 使用兼容 React 18 的富文本组件
 import ReactQuill from 'react-quill-new';
@@ -16,11 +16,13 @@ import 'react-quill-new/dist/quill.snow.css';
 
 type CourseStatus = "draft" | "active" | "archived";
 
-export default function CourseCreate() {
+export default function CourseEdit() {
+  const { id } = useParams<{ id: string }>();
+  const courseId = parseInt(id || "0");
   const [, setLocation] = useLocation();
   const [loading, setLoading] = useState(false);
 
-  // 【功能：动态学期生成】
+  // 【功能：灵活学期生成】自动根据当前时间生成可用学期列表
   const semesterOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
     const options = [];
@@ -36,76 +38,109 @@ export default function CourseCreate() {
     name: "",
     code: "",
     description: "",
-    semester: semesterOptions[2] || "2024-2025-1",
-    credits: 3, // 教师自由输入，初始默认为 3
+    semester: "",
+    credits: 3,
     status: "draft" as CourseStatus,
   });
 
-  const createCourseMutation = trpc.courses.create.useMutation({
+  // 1. 获取现有课程数据（移除不推荐的 onSuccess）
+  const { data: course, isLoading: isFetching } = trpc.courses.get.useQuery({ id: courseId });
+
+  // 2. 使用 useEffect 实现数据回显同步
+  useEffect(() => {
+    if (course) {
+        console.log("Fetched course data:", course);
+      setFormData({
+        name: course.name,
+        code: course.code,
+        description: course.description || "",
+        semester: course.semester,
+        credits: course.credits || 3,
+        status: course.status as CourseStatus,
+      });
+    }
+  }, [course]);
+
+  // 3. 定义更新 Mutation
+  const updateCourseMutation = trpc.courses.update.useMutation({
     onSuccess: () => {
-      toast.success("课程已成功保存");
-      setLocation("/teacher/courses");
+      toast.success("课程信息更新成功");
+      setLocation(`/teacher/courses/${courseId}`);
     },
     onError: (error) => {
-      toast.error(error.message || "创建失败");
+      toast.error(error.message || "更新失败");
     },
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.code) {
-      toast.error("课程名称与代码为必填项");
+    if (!formData.name) {
+      toast.error("课程名称不能为空");
       return;
     }
     setLoading(true);
     try {
-      await createCourseMutation.mutateAsync(formData as any);
+      await updateCourseMutation.mutateAsync({
+        id: courseId,
+        ...formData,
+      });
     } finally {
       setLoading(false);
     }
   };
 
+  if (isFetching) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <p className="text-slate-400 animate-pulse font-medium">加载课程档案中...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
-    <DashboardLayout>
+    <DashboardLayout key={courseId}>
       <div className="max-w-5xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
-        {/* 顶部导航：保持简洁专业 */}
+        {/* 顶部导航与操作栏 */}
         <div className="flex items-center justify-between py-4">
           <div className="flex items-center gap-4">
-            <Link href="/teacher/courses">
+            <Link href={`/teacher/courses/${courseId}`}>
               <Button variant="outline" size="icon" className="rounded-full">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">创建课程</h1>
-              <p className="text-sm text-muted-foreground">配置课程基础信息与教学大纲</p>
+              <h1 className="text-2xl font-bold tracking-tight">编辑课程资料</h1>
+              <p className="text-sm text-muted-foreground italic">修改 ID: {courseId} 的课程档案</p>
             </div>
           </div>
           <div className="flex gap-3">
-             <Button type="button" variant="ghost" onClick={() => setLocation("/teacher/courses")}>取消</Button>
+             <Button type="button" variant="ghost" onClick={() => setLocation(`/teacher/courses/${courseId}`)}>取消</Button>
              <Button onClick={handleSubmit} className="px-6 shadow-md" disabled={loading}>
-               {loading ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <Zap className="h-4 w-4 mr-2" />}
-               创建并发布
+               {loading ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+               保存修改
              </Button>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 左侧主要区域：富文本 */}
+          {/* 左侧主要区域：富文本大纲 */}
           <div className="lg:col-span-2 space-y-6">
             <Card className="shadow-sm border-slate-200/60">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-primary" /> 课程详细介绍
+                  <BookOpen className="w-5 h-5 text-primary" /> 课程介绍与大纲
                 </CardTitle>
-                <CardDescription>编写详细的课程大纲、目标及考核标准</CardDescription>
+                <CardDescription>更新详细的课程内容，将即时向选课学生展示</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="name">课程全称 *</Label>
+                  <Label htmlFor="name" className="font-bold">课程全称 *</Label>
                   <Input
                     id="name"
-                    placeholder="如：计算机组成原理"
+                    placeholder="请输入课程全称"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className="h-11 focus-visible:ring-primary/20"
@@ -114,14 +149,14 @@ export default function CourseCreate() {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label>教学大纲 (富文本编辑器)</Label>
-                  <div className="rounded-md border border-input bg-background">
+                  <Label className="font-bold">教学大纲 (富文本编辑)</Label>
+                  <div className="rounded-md border border-input bg-background overflow-hidden">
                     <ReactQuill
                       theme="snow"
                       value={formData.description}
                       onChange={(v) => setFormData({ ...formData, description: v })}
                       className="min-h-[400px]"
-                      placeholder="在此输入详细的授课内容..."
+                      placeholder="更新课程目标、考核标准等内容..."
                     />
                   </div>
                 </div>
@@ -129,7 +164,7 @@ export default function CourseCreate() {
             </Card>
           </div>
 
-          {/* 右侧配置区域：保持卡片风格统一 */}
+          {/* 右侧配置区域 */}
           <div className="space-y-6">
             <Card className="shadow-sm border-slate-200/60">
               <CardHeader>
@@ -139,19 +174,16 @@ export default function CourseCreate() {
               </CardHeader>
               <CardContent className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="code">课程代码 *</Label>
+                  <Label className="text-xs font-bold text-slate-400 uppercase tracking-tighter">课程代码 (不可修改)</Label>
                   <Input
-                    id="code"
                     value={formData.code}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                    className="h-10 font-mono"
-                    placeholder="CS101"
-                    required
+                    disabled
+                    className="h-10 font-mono bg-slate-50 opacity-70 cursor-not-allowed"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label>授课学期</Label>
+                  <Label className="font-bold">授课学期</Label>
                   <Select value={formData.semester} onValueChange={(v) => setFormData({ ...formData, semester: v })}>
                     <SelectTrigger className="h-10">
                       <SelectValue />
@@ -164,9 +196,8 @@ export default function CourseCreate() {
                   </Select>
                 </div>
 
-                {/* 【按需修改：学分自由输入】 */}
                 <div className="space-y-2">
-                  <Label htmlFor="credits">学分设定</Label>
+                  <Label htmlFor="credits" className="font-bold">学分设定</Label>
                   <Input
                     id="credits"
                     type="number"
@@ -175,13 +206,11 @@ export default function CourseCreate() {
                     value={formData.credits}
                     onChange={(e) => setFormData({ ...formData, credits: parseFloat(e.target.value) || 0 })}
                     className="h-10"
-                    placeholder="请输入学分，如 3"
                   />
                 </div>
               </CardContent>
             </Card>
 
-            {/* 【状态选择：移除深色背景，保持风格统一】 */}
             <Card className="shadow-sm border-slate-200/60">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -191,8 +220,8 @@ export default function CourseCreate() {
               <CardContent className="space-y-3">
                 {[
                   { id: 'draft', label: '草稿', desc: '暂不对学生可见' },
-                  { id: 'active', label: '发布', desc: '立即开启授课' },
-                  { id: 'archived', label: '归档', desc: '转为历史记录' }
+                  { id: 'active', label: '发布', desc: '学生可立即访问' },
+                  { id: 'archived', label: '归档', desc: '转为只读历史记录' }
                 ].map(s => (
                   <div
                     key={s.id}

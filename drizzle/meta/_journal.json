@@ -22,6 +22,20 @@
       "when": 1767086929172,
       "tag": "0002_true_thena",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1767187923146,
+      "tag": "0003_needy_the_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1767188319441,
+      "tag": "0004_dapper_sage",
+      "breakpoints": true
     }
   ]
 }

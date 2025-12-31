@@ -38,6 +38,7 @@ import StudentExperimentList from "./pages/student/ExperimentList";
 import Profile from "./pages/Profile";
 import ChangePassword from "./pages/ChangePassword";
 import StudentImport from "./pages/teacher/StudentImport";
+import CourseEdit from "./pages/teacher/CourseEdit";
 
 function Router() {
   return (
@@ -55,6 +56,7 @@ function Router() {
       <Route path="/teacher/dashboard" component={TeacherDashboard} />
       <Route path="/teacher/courses" component={CourseList} />
       <Route path="/teacher/courses/create" component={CourseCreate} />
+      <Route path="/teacher/courses/:id/edit" component={CourseEdit} />
       <Route path="/teacher/courses/:id" component={CourseDetail} />
       <Route path="/teacher/classes" component={ClassList} />
       <Route path="/teacher/classes/:id" component={ClassDetail} />

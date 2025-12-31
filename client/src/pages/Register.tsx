@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { GraduationCap, ArrowLeft } from "lucide-react";
+import { GraduationCap, ArrowLeft, ShieldCheck, UserCheck } from "lucide-react";
 
 export default function Register() {
   const [, setLocation] = useLocation();
@@ -21,7 +21,7 @@ export default function Register() {
 
   const registerMutation = trpc.auth.register.useMutation({
     onSuccess: () => {
-      toast.success("注册成功!请登录");
+      toast.success("注册成功! 请联系管理员审核或直接登录");
       setLocation("/login");
     },
     onError: (error) => {
@@ -31,17 +31,14 @@ export default function Register() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!username || !password || !name) {
       toast.error("请填写所有必填项");
       return;
     }
-
     if (password !== confirmPassword) {
       toast.error("两次输入的密码不一致");
       return;
     }
-
     if (password.length < 6) {
       toast.error("密码长度至少为6位");
       return;
@@ -54,7 +51,7 @@ export default function Register() {
         password,
         name,
         email: email || undefined,
-        role: "teacher", // 固定为教师角色
+        role: "teacher", 
       });
     } finally {
       setLoading(false);
@@ -62,142 +59,78 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-4">
-          <Link href="/" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors">
-            <ArrowLeft className="h-4 w-4" />
-            返回首页
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+      <Card className="w-full max-w-lg shadow-2xl border-none ring-1 ring-slate-200">
+        <CardHeader className="space-y-1 bg-slate-50/80 rounded-t-xl border-b border-slate-100">
+          <Link href="/login" className="flex items-center gap-2 text-sm text-slate-500 hover:text-primary transition-colors mb-2">
+            <ArrowLeft className="h-4 w-4" /> 返回登录
           </Link>
-          <div className="flex items-center justify-center">
-            <div className="h-12 w-12 rounded-full bg-primary flex items-center justify-center">
-              <GraduationCap className="h-6 w-6 text-primary-foreground" />
+          <div className="flex items-center gap-3">
+            <div className="bg-primary p-2 rounded-xl text-white shadow-lg shadow-primary/20">
+              <UserCheck className="h-6 w-6" />
             </div>
-          </div>
-          <div className="text-center">
-            <CardTitle className="text-2xl">教师注册</CardTitle>
-            <CardDescription>
-              创建教师账户以管理课程和学生
-              <br />
-              <span className="text-xs text-muted-foreground">
-                学生账户由教师在班级管理中创建
-              </span>
-            </CardDescription>
+            <div>
+              <CardTitle className="text-2xl font-bold">教师入驻申请</CardTitle>
+              <CardDescription>
+                创建您的教师账户以开启数字化智慧教学
+              </CardDescription>
+            </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleRegister} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+        
+        <CardContent className="pt-8">
+          <form onSubmit={handleRegister} className="space-y-6">
+            <div className="grid grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="username">
-                  用户名 <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="登录用户名"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                  minLength={3}
-                  maxLength={50}
-                />
+                <Label htmlFor="username" className="text-xs font-bold text-slate-500 uppercase">用户名 *</Label>
+                <Input id="username" placeholder="登录账号" value={username} onChange={(e) => setUsername(e.target.value)} required className="h-11 bg-slate-50/50" />
               </div>
-
               <div className="space-y-2">
-                <Label htmlFor="name">
-                  姓名 <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="真实姓名"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
+                <Label htmlFor="name" className="text-xs font-bold text-slate-500 uppercase">真实姓名 *</Label>
+                <Input id="name" placeholder="您的姓名" value={name} onChange={(e) => setName(e.target.value)} required className="h-11 bg-slate-50/50" />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">邮箱</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="用于接收通知和找回密码"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
+              <Label htmlFor="email" className="text-xs font-bold text-slate-500 uppercase">工作邮箱</Label>
+              <Input id="email" type="email" placeholder="example@university.edu" value={email} onChange={(e) => setEmail(e.target.value)} className="h-11 bg-slate-50/50" />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="department">所属院系</Label>
-                <Input
-                  id="department"
-                  type="text"
-                  placeholder="如:计算机学院"
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                />
+                <Label htmlFor="department" className="text-xs font-bold text-slate-500 uppercase">所属院系</Label>
+                <Input id="department" placeholder="如: 软件学院" value={department} onChange={(e) => setDepartment(e.target.value)} className="h-11 bg-slate-50/50" />
               </div>
-
               <div className="space-y-2">
-                <Label htmlFor="title">职称</Label>
-                <Input
-                  id="title"
-                  type="text"
-                  placeholder="如:副教授"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
+                <Label htmlFor="title" className="text-xs font-bold text-slate-500 uppercase">当前职称</Label>
+                <Input id="title" placeholder="如: 副教授" value={title} onChange={(e) => setTitle(e.target.value)} className="h-11 bg-slate-50/50" />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">
-                密码 <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="至少6位"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-              />
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="password" id="pass-label" className="text-xs font-bold text-slate-500 uppercase">设置密码 *</Label>
+                <Input id="password" type="password" placeholder="至少6位" value={password} onChange={(e) => setPassword(e.target.value)} required className="h-11 bg-slate-50/50" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword" className="text-xs font-bold text-slate-500 uppercase">确认密码 *</Label>
+                <Input id="confirmPassword" type="password" placeholder="重复输入密码" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required className="h-11 bg-slate-50/50" />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">
-                确认密码 <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                placeholder="再次输入密码"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "注册中..." : "注册教师账户"}
+            <Button type="submit" className="w-full h-12 text-lg font-bold shadow-xl shadow-primary/20" disabled={loading}>
+              {loading ? "申请中..." : "立即提交申请"}
             </Button>
           </form>
 
-          <div className="text-center text-sm mt-4 space-y-2">
-            <div>
-              已有账户?{" "}
-              <Link href="/login" className="text-primary hover:underline">
-                立即登录
-              </Link>
+          <div className="mt-8 p-4 bg-slate-900 rounded-2xl text-white relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity">
+              <ShieldCheck className="h-12 w-12" />
             </div>
-            <div className="text-xs text-muted-foreground">
-              学生账户请联系任课教师创建
-            </div>
+            <h4 className="text-xs font-bold uppercase tracking-widest text-primary mb-2">学生提示</h4>
+            <p className="text-[11px] leading-relaxed text-slate-300 relative z-10">
+              本系统严格区分教学角色。学生账户由教师在管理端批量导入，<strong>无需且不支持</strong>自主注册。如您需要进入系统，请关注您的教务邮箱或联系任课教师获取账号。
+            </p>
           </div>
         </CardContent>
       </Card>

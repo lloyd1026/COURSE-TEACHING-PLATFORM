@@ -157,6 +157,33 @@ export async function getAllCourses(searchQuery?: string) {
   return await db.select().from(courses).orderBy(desc(courses.createdAt));
 }
 
+export async function getCoursesByTeacherId(teacherId: number, searchQuery?: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  if (searchQuery) {
+    return await db
+      .select()
+      .from(courses)
+      .where(
+        and(
+          eq(courses.teacherId, teacherId),
+          or(
+            like(courses.name, `%${searchQuery}%`),
+            like(courses.code, `%${searchQuery}%`)
+          )
+        )
+      )
+      .orderBy(desc(courses.createdAt));
+  }
+
+  return await db
+    .select()
+    .from(courses)
+    .where(eq(courses.teacherId, teacherId))
+    .orderBy(desc(courses.createdAt));
+}
+
 export async function getCourseById(id: number) {
   const db = await getDb();
   if (!db) return null;

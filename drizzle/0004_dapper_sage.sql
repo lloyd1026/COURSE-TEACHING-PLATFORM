@@ -1,0 +1,1 @@
+ALTER TABLE `courses` ADD `semester` varchar(20) NOT NULL;

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
+import { publicProcedure, router, protectedProcedure, teacherProcedure } from "./_core/trpc";
 import * as db from "./db";
 import { invokeLLM } from "./_core/llm";
 import * as auth from "./auth";
@@ -178,8 +178,11 @@ export const appRouter = router({
   courses: router({
     list: protectedProcedure
       .input(z.object({ search: z.string().optional() }).optional())
-      .query(async ({ input }) => {
-        return await db.getAllCourses(input?.search);
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role === 'admin') {
+          return await db.getAllCourses(input?.search);
+        }
+        return await db.getCoursesByTeacherId(ctx.user.id, input?.search);
       }),
 
     get: protectedProcedure
@@ -188,7 +191,7 @@ export const appRouter = router({
         return await db.getCourseById(input.id);
       }),
 
-    create: protectedProcedure
+    create: teacherProcedure
       .input(
         z.object({
           name: z.string(),
@@ -196,12 +199,15 @@ export const appRouter = router({
           description: z.string(),
           semester: z.string(),
           credits: z.number(),
-          teacherId: z.number(),
+          // teacherId: z.number(),  // 使用session中的用户ID，防止其他教师冒用
           status: z.enum(["draft", "active", "archived"]).default("draft"),
         })
       )
-      .mutation(async ({ input }) => {
-        return await db.createCourse(input);
+      .mutation(async ({ ctx, input }) => {
+        return await db.createCourse({
+          ...input,
+          teacherId: ctx.user.id,
+        });
       }),
 
     update: protectedProcedure
@@ -210,6 +216,7 @@ export const appRouter = router({
           id: z.number(),
           name: z.string().optional(),
           description: z.string().optional(),
+          semester: z.string().optional(),
           status: z.enum(["draft", "active", "archived"]).optional(),
         })
       )
