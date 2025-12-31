@@ -11,6 +11,7 @@ export default function Home() {
   const [, setLocation] = useLocation();
 
   useEffect(() => {
+    console.log("Home页状态检查:", { user, loading });
     if (!loading && user) {
       // 根据用户角色重定向到对应的仪表板
       if (user.role === 'admin') {

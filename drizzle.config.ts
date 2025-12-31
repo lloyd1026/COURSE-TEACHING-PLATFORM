@@ -1,4 +1,8 @@
 import { defineConfig } from "drizzle-kit";
+import * as dotenv from 'dotenv';
+
+// 显式加载环境变量
+dotenv.config();
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {

@@ -1,7 +1,20 @@
 import { eq, desc, and, like, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, courses, classes, assignments, students, teachers, questions, exams, experiments, knowledgePoints, chapters } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import {
+  InsertUser,
+  users,
+  courses,
+  classes,
+  assignments,
+  students,
+  teachers,
+  questions,
+  exams,
+  experiments,
+  knowledgePoints,
+  chapters,
+} from "../drizzle/schema";
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -18,61 +31,59 @@ export async function getDb() {
   return _db;
 }
 
+// ==================== 用户管理 ====================
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
-
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot upsert user: database not available");
     return;
   }
 
+  // 1. 如果既没有 openId 也没有 id，这才是真正的非法调用
+  if (!user.openId && !user.id) {
+    throw new Error("User openId or id is required for upsert");
+  }
+
   try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
     const updateSet: Record<string, unknown> = {};
-
     const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
+    
+    // 构造更新数据
+    textFields.forEach(field => {
+      if (user[field] !== undefined) {
+        updateSet[field] = user[field] ?? null;
+      }
     });
+
+    if (user.lastSignedIn) updateSet.lastSignedIn = user.lastSignedIn;
+    if (user.role) updateSet.role = user.role;
+
+    // 2. 逻辑分叉
+    if (user.openId) {
+      // --- 情况 A: 有 openId (OAuth 流程) ---
+      // 保持你原有的逻辑：插入或更新
+      const values: InsertUser = { ...user, openId: user.openId };
+      if (!values.lastSignedIn) values.lastSignedIn = new Date();
+      
+      // 处理管理员自动分配
+      if (!user.role && user.openId === ENV.ownerOpenId) {
+        values.role = "admin";
+        updateSet.role = "admin";
+      }
+
+      await db.insert(users).values(values).onDuplicateKeyUpdate({
+        set: updateSet,
+      });
+    } else if (user.id) {
+      // --- 情况 B: 没有 openId 但有 id (本地用户流程) ---
+      // 仅执行更新操作
+      if (Object.keys(updateSet).length === 0) {
+        updateSet.lastSignedIn = new Date();
+      }
+      await db.update(users).set(updateSet).where(eq(users.id, user.id));
+    }
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
+    console.error("[Database] Failed to upsert/update user:", error);
     throw error;
   }
 }
@@ -84,7 +95,22 @@ export async function getUserByOpenId(openId: string) {
     return undefined;
   }
 
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user by ID: database not available");
+    return undefined;
+  }
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
 }
@@ -94,13 +120,16 @@ export async function getAllUsers(searchQuery?: string) {
   if (!db) return [];
 
   if (searchQuery) {
-    return await db.select().from(users).where(
-      or(
-        like(users.name, `%${searchQuery}%`),
-        like(users.email, `%${searchQuery}%`),
-        like(users.username, `%${searchQuery}%`)
-      )
-    );
+    return await db
+      .select()
+      .from(users)
+      .where(
+        or(
+          like(users.name, `%${searchQuery}%`),
+          like(users.email, `%${searchQuery}%`),
+          like(users.username, `%${searchQuery}%`)
+        )
+      );
   }
 
   return await db.select().from(users);
@@ -113,12 +142,16 @@ export async function getAllCourses(searchQuery?: string) {
   if (!db) return [];
 
   if (searchQuery) {
-    return await db.select().from(courses).where(
-      or(
-        like(courses.name, `%${searchQuery}%`),
-        like(courses.code, `%${searchQuery}%`)
+    return await db
+      .select()
+      .from(courses)
+      .where(
+        or(
+          like(courses.name, `%${searchQuery}%`),
+          like(courses.code, `%${searchQuery}%`)
+        )
       )
-    ).orderBy(desc(courses.createdAt));
+      .orderBy(desc(courses.createdAt));
   }
 
   return await db.select().from(courses).orderBy(desc(courses.createdAt));
@@ -128,7 +161,11 @@ export async function getCourseById(id: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const result = await db.select().from(courses).where(eq(courses.id, id)).limit(1);
+  const result = await db
+    .select()
+    .from(courses)
+    .where(eq(courses.id, id))
+    .limit(1);
   return result[0] || null;
 }
 
@@ -140,7 +177,10 @@ export async function createCourse(data: typeof courses.$inferInsert) {
   return { id: Number((result as any).insertId) };
 }
 
-export async function updateCourse(id: number, data: Partial<typeof courses.$inferInsert>) {
+export async function updateCourse(
+  id: number,
+  data: Partial<typeof courses.$inferInsert>
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -169,7 +209,11 @@ export async function getClassById(id: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const result = await db.select().from(classes).where(eq(classes.id, id)).limit(1);
+  const result = await db
+    .select()
+    .from(classes)
+    .where(eq(classes.id, id))
+    .limit(1);
   return result[0] || null;
 }
 
@@ -188,19 +232,28 @@ export async function getAllAssignments(courseId?: number) {
   if (!db) return [];
 
   if (courseId) {
-    return await db.select().from(assignments)
+    return await db
+      .select()
+      .from(assignments)
       .where(eq(assignments.courseId, courseId))
       .orderBy(desc(assignments.createdAt));
   }
 
-  return await db.select().from(assignments).orderBy(desc(assignments.createdAt));
+  return await db
+    .select()
+    .from(assignments)
+    .orderBy(desc(assignments.createdAt));
 }
 
 export async function getAssignmentById(id: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const result = await db.select().from(assignments).where(eq(assignments.id, id)).limit(1);
+  const result = await db
+    .select()
+    .from(assignments)
+    .where(eq(assignments.id, id))
+    .limit(1);
   return result[0] || null;
 }
 
@@ -219,7 +272,9 @@ export async function getAllQuestions(courseId?: number) {
   if (!db) return [];
 
   if (courseId) {
-    return await db.select().from(questions)
+    return await db
+      .select()
+      .from(questions)
       .where(eq(questions.courseId, courseId))
       .orderBy(desc(questions.createdAt));
   }
@@ -231,7 +286,11 @@ export async function getQuestionById(id: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const result = await db.select().from(questions).where(eq(questions.id, id)).limit(1);
+  const result = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, id))
+    .limit(1);
   return result[0] || null;
 }
 
@@ -250,7 +309,9 @@ export async function getAllExams(courseId?: number) {
   if (!db) return [];
 
   if (courseId) {
-    return await db.select().from(exams)
+    return await db
+      .select()
+      .from(exams)
       .where(eq(exams.courseId, courseId))
       .orderBy(desc(exams.createdAt));
   }
@@ -281,19 +342,28 @@ export async function getAllExperiments(courseId?: number) {
   if (!db) return [];
 
   if (courseId) {
-    return await db.select().from(experiments)
+    return await db
+      .select()
+      .from(experiments)
       .where(eq(experiments.courseId, courseId))
       .orderBy(desc(experiments.createdAt));
   }
 
-  return await db.select().from(experiments).orderBy(desc(experiments.createdAt));
+  return await db
+    .select()
+    .from(experiments)
+    .orderBy(desc(experiments.createdAt));
 }
 
 export async function getExperimentById(id: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const result = await db.select().from(experiments).where(eq(experiments.id, id)).limit(1);
+  const result = await db
+    .select()
+    .from(experiments)
+    .where(eq(experiments.id, id))
+    .limit(1);
   return result[0] || null;
 }
 
@@ -311,7 +381,9 @@ export async function getChaptersByCourseId(courseId: number) {
   const db = await getDb();
   if (!db) return [];
 
-  return await db.select().from(chapters)
+  return await db
+    .select()
+    .from(chapters)
     .where(eq(chapters.courseId, courseId));
 }
 
@@ -319,7 +391,9 @@ export async function getKnowledgePointsByChapterId(chapterId: number) {
   const db = await getDb();
   if (!db) return [];
 
-  return await db.select().from(knowledgePoints)
+  return await db
+    .select()
+    .from(knowledgePoints)
     .where(eq(knowledgePoints.chapterId, chapterId));
 }
 
@@ -330,8 +404,12 @@ export async function getStatistics() {
   if (!db) return { userCount: 0, courseCount: 0, classCount: 0 };
 
   const [userCountResult] = await db.select({ count: users.id }).from(users);
-  const [courseCountResult] = await db.select({ count: courses.id }).from(courses);
-  const [classCountResult] = await db.select({ count: classes.id }).from(classes);
+  const [courseCountResult] = await db
+    .select({ count: courses.id })
+    .from(courses);
+  const [classCountResult] = await db
+    .select({ count: classes.id })
+    .from(classes);
 
   return {
     userCount: userCountResult?.count || 0,

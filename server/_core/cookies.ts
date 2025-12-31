@@ -39,10 +39,15 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  const isSecure = isSecureRequest(req);
+
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
-    secure: isSecureRequest(req),
+    // sameSite: "none",
+    // secure: isSecureRequest(req),
+    // 开发环境下，localhost 不支持 SameSite=None 和 Secure
+    sameSite: isSecure ? "none" : "lax", 
+    secure: isSecure,
   };
 }

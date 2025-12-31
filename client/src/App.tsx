@@ -40,16 +40,17 @@ import ChangePassword from "./pages/ChangePassword";
 import StudentImport from "./pages/teacher/StudentImport";
 
 function Router() {
-  return (    <Switch>
+  return (
+    <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/login"} component={Login} />
-      <Route path={"/register"} component={Register} />      
+      <Route path={"/register"} component={Register} />
       {/* Admin Routes */}
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/users" component={AdminUserList} />
       <Route path="/admin/courses" component={AdminCourseList} />
       <Route path="/admin/classes" component={AdminClassList} />
-      
+
       {/* Teacher Routes */}
       <Route path="/teacher/dashboard" component={TeacherDashboard} />
       <Route path="/teacher/courses" component={CourseList} />
@@ -67,24 +68,27 @@ function Router() {
       <Route path="/teacher/exams/:id" component={ExamDetail} />
       <Route path="/teacher/knowledge-graph" component={KnowledgeGraph} />
       <Route path="/teacher/experiments" component={ExperimentList} />
-      
+
       {/* Student Routes */}
       <Route path="/student/dashboard" component={StudentDashboard} />
       <Route path="/student/courses" component={StudentCourseList} />
       <Route path="/student/assignments" component={StudentAssignmentList} />
-      <Route path="/student/assignments/:id" component={StudentAssignmentDetail} />
+      <Route
+        path="/student/assignments/:id"
+        component={StudentAssignmentDetail}
+      />
       <Route path="/student/exams" component={StudentExamList} />
       <Route path="/student/exams/:id/take" component={StudentExamTaking} />
       <Route path="/student/ai-assistant" component={AIAssistant} />
       <Route path="/student/experiments" component={StudentExperimentList} />
-      
+
       {/* Teacher Additional Routes */}
       <Route path="/teacher/students/import" component={StudentImport} />
-      
+
       {/* Common Routes */}
       <Route path="/profile" component={Profile} />
       <Route path="/change-password" component={ChangePassword} />
-      
+
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

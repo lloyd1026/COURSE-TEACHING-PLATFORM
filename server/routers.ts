@@ -8,13 +8,14 @@ import * as db from "./db";
 import { invokeLLM } from "./_core/llm";
 import * as auth from "./auth";
 import { sdk } from "./_core/sdk";
+import { ENV } from "./_core/env";
 
 export const appRouter = router({
   system: systemRouter,
-  
+
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-    
+
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -22,25 +23,27 @@ export const appRouter = router({
     }),
 
     register: publicProcedure
-      .input(z.object({
-        username: z.string().min(3).max(50),
-        password: z.string().min(6),
-        name: z.string(),
-        email: z.string().email().optional(),
-        role: z.enum(['teacher', 'student']).optional(),
-      }))
+      .input(
+        z.object({
+          username: z.string().min(3).max(50),
+          password: z.string().min(6),
+          name: z.string(),
+          email: z.string().email().optional(),
+          role: z.enum(["teacher", "student"]).optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         // 检查用户名是否已存在
         const existing = await auth.getUserByUsername(input.username);
         if (existing) {
-          throw new Error('用户名已存在');
+          throw new Error("用户名已存在");
         }
 
         // 如果提供了邮箱,检查邮箱是否已存在
         if (input.email) {
           const existingEmail = await auth.getUserByEmail(input.email);
           if (existingEmail) {
-            throw new Error('邮箱已被使用');
+            throw new Error("邮箱已被使用");
           }
         }
 
@@ -50,36 +53,48 @@ export const appRouter = router({
           password: input.password,
           name: input.name,
           email: input.email,
-          role: input.role || 'student',
+          role: input.role || "student",
         });
 
         return { success: true };
       }),
 
     login: publicProcedure
-      .input(z.object({
-        username: z.string(),
-        password: z.string(),
-      }))
+      .input(
+        z.object({
+          username: z.string(),
+          password: z.string(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         // 验证用户
-        const user = await auth.authenticateUser(input.username, input.password);
+        const user = await auth.authenticateUser(
+          input.username,
+          input.password
+        );
         if (!user) {
-          throw new Error('用户名或密码错误');
+          throw new Error("用户名或密码错误");
         }
 
         // 生成session token
-        const openId = user.username || `user-${user.id}`;
-        const token = await sdk.createSessionToken(openId, {
-          name: user.name || '',
-          expiresInMs: 365 * 24 * 60 * 60 * 1000, // 1年
-        });
-        
+        // const openId = user.username || `user-${user.id}`;
+        const token = await sdk.signSession(
+          {
+            id: user.id,
+            // openId: user.username || `user-${user.id}`,
+            appId: ENV.appId,
+            name: user.name || user.username,
+          },
+          {
+            expiresInMs: 365 * 24 * 60 * 60 * 1000,
+          }
+        );
+
         // 设置 cookie
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, token, cookieOptions);
 
-        return { 
+        return {
           success: true,
           user: {
             id: user.id,
@@ -87,7 +102,7 @@ export const appRouter = router({
             name: user.name,
             email: user.email,
             role: user.role,
-          }
+          },
         };
       }),
   }),
@@ -109,16 +124,20 @@ export const appRouter = router({
 
     // 批量创建学生
     createStudentsBatch: protectedProcedure
-      .input(z.object({
-        students: z.array(z.object({
-          username: z.string(),
-          password: z.string(),
-          name: z.string(),
-          studentId: z.string().optional(),
-          email: z.string().optional(),
-        })),
-        classId: z.number().optional(),
-      }))
+      .input(
+        z.object({
+          students: z.array(
+            z.object({
+              username: z.string(),
+              password: z.string(),
+              name: z.string(),
+              studentId: z.string().optional(),
+              email: z.string().optional(),
+            })
+          ),
+          classId: z.number().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         const results = await auth.createStudentsBatch(input.students);
         return results;
@@ -126,23 +145,31 @@ export const appRouter = router({
 
     // 修改密码
     changePassword: protectedProcedure
-      .input(z.object({
-        oldPassword: z.string(),
-        newPassword: z.string().min(6),
-      }))
+      .input(
+        z.object({
+          oldPassword: z.string(),
+          newPassword: z.string().min(6),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (!ctx.user) throw new Error('未登录');
-        return await auth.changePassword(ctx.user.id, input.oldPassword, input.newPassword);
+        if (!ctx.user) throw new Error("未登录");
+        return await auth.changePassword(
+          ctx.user.id,
+          input.oldPassword,
+          input.newPassword
+        );
       }),
 
     // 更新个人信息
     updateProfile: protectedProcedure
-      .input(z.object({
-        name: z.string().optional(),
-        email: z.string().email().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().optional(),
+          email: z.string().email().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (!ctx.user) throw new Error('未登录');
+        if (!ctx.user) throw new Error("未登录");
         return await auth.updateUserProfile(ctx.user.id, input);
       }),
   }),
@@ -162,26 +189,30 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        name: z.string(),
-        code: z.string(),
-        description: z.string(),
-        semester: z.string(),
-        credits: z.number(),
-        teacherId: z.number(),
-        status: z.enum(['draft', 'active', 'archived']).default('draft'),
-      }))
+      .input(
+        z.object({
+          name: z.string(),
+          code: z.string(),
+          description: z.string(),
+          semester: z.string(),
+          credits: z.number(),
+          teacherId: z.number(),
+          status: z.enum(["draft", "active", "archived"]).default("draft"),
+        })
+      )
       .mutation(async ({ input }) => {
         return await db.createCourse(input);
       }),
 
     update: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        name: z.string().optional(),
-        description: z.string().optional(),
-        status: z.enum(['draft', 'active', 'archived']).optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          name: z.string().optional(),
+          description: z.string().optional(),
+          status: z.enum(["draft", "active", "archived"]).optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         return await db.updateCourse(id, data);
@@ -207,12 +238,14 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        name: z.string(),
-        grade: z.number().optional(),
-        major: z.string().optional(),
-        headTeacherId: z.number().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string(),
+          grade: z.number().optional(),
+          major: z.string().optional(),
+          headTeacherId: z.number().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         return await db.createClass(input);
       }),
@@ -233,18 +266,20 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        title: z.string(),
-        description: z.string().optional(),
-        courseId: z.number(),
-        classId: z.number(),
-        dueDate: z.date(),
-        createdBy: z.number(),
-      }))
+      .input(
+        z.object({
+          title: z.string(),
+          description: z.string().optional(),
+          courseId: z.number(),
+          classId: z.number(),
+          dueDate: z.date(),
+          createdBy: z.number(),
+        })
+      )
       .mutation(async ({ input }) => {
         return await db.createAssignment({
           ...input,
-          status: 'published',
+          status: "published",
         });
       }),
   }),
@@ -264,17 +299,19 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        questionTypeId: z.number(),
-        courseId: z.number(),
-        title: z.string(),
-        content: z.string().optional(),
-        options: z.any().optional(),
-        answer: z.string().optional(),
-        analysis: z.string().optional(),
-        difficulty: z.enum(['easy', 'medium', 'hard']),
-        createdBy: z.number(),
-      }))
+      .input(
+        z.object({
+          questionTypeId: z.number(),
+          courseId: z.number(),
+          title: z.string(),
+          content: z.string().optional(),
+          options: z.any().optional(),
+          answer: z.string().optional(),
+          analysis: z.string().optional(),
+          difficulty: z.enum(["easy", "medium", "hard"]),
+          createdBy: z.number(),
+        })
+      )
       .mutation(async ({ input }) => {
         return await db.createQuestion(input);
       }),
@@ -295,21 +332,23 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        title: z.string(),
-        description: z.string().optional(),
-        courseId: z.number(),
-        classId: z.number(),
-        duration: z.number(),
-        startTime: z.date(),
-        endTime: z.date(),
-        totalScore: z.number().optional(),
-        createdBy: z.number(),
-      }))
+      .input(
+        z.object({
+          title: z.string(),
+          description: z.string().optional(),
+          courseId: z.number(),
+          classId: z.number(),
+          duration: z.number(),
+          startTime: z.date(),
+          endTime: z.date(),
+          totalScore: z.number().optional(),
+          createdBy: z.number(),
+        })
+      )
       .mutation(async ({ input }) => {
         return await db.createExam({
           ...input,
-          status: 'not_started',
+          status: "not_started",
         });
       }),
   }),
@@ -344,18 +383,20 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        title: z.string(),
-        description: z.string().optional(),
-        courseId: z.number(),
-        classId: z.number(),
-        dueDate: z.date(),
-        createdBy: z.number(),
-      }))
+      .input(
+        z.object({
+          title: z.string(),
+          description: z.string().optional(),
+          courseId: z.number(),
+          classId: z.number(),
+          dueDate: z.date(),
+          createdBy: z.number(),
+        })
+      )
       .mutation(async ({ input }) => {
         return await db.createExperiment({
           ...input,
-          status: 'draft',
+          status: "draft",
         });
       }),
   }),
@@ -363,25 +404,29 @@ export const appRouter = router({
   // ==================== AI助教 ====================
   ai: router({
     chat: protectedProcedure
-      .input(z.object({
-        message: z.string(),
-        conversationId: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          message: z.string(),
+          conversationId: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
           messages: [
             {
               role: "system",
-              content: "你是一个专业的教学助手,帮助学生理解课程内容和解答问题。请用简洁清晰的语言回答。"
+              content:
+                "你是一个专业的教学助手,帮助学生理解课程内容和解答问题。请用简洁清晰的语言回答。",
             },
             {
               role: "user",
-              content: input.message
-            }
+              content: input.message,
+            },
           ],
         });
 
-        const reply = response.choices[0]?.message?.content || "抱歉,我无法回答这个问题。";
+        const reply =
+          response.choices[0]?.message?.content || "抱歉,我无法回答这个问题。";
 
         return {
           reply,

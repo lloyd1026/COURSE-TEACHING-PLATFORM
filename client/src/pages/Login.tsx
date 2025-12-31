@@ -99,12 +99,12 @@ export default function Login() {
               </form>
               
               {/* 演示账户提示 */}
-              <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+              {/* <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
                 <p className="font-medium mb-1">演示账户:</p>
                 <p>管理员: admin / admin123</p>
                 <p>教师: teacher1 / teacher123</p>
                 <p>学生: student1 / student123</p>
-              </div>
+              </div> */}
             </TabsContent>
 
             <TabsContent value="oauth" className="space-y-4 mt-4">

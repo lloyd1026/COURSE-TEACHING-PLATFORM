@@ -10,6 +10,7 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
+// 统一处理未认证错误，重定向到登录页
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
@@ -37,6 +38,7 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+// JWT 认证需要携带 Cookie
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
@@ -52,6 +54,7 @@ const trpcClient = trpc.createClient({
   ],
 });
 
+// 渲染根节点
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <QueryClientProvider client={queryClient}>
