@@ -122,8 +122,8 @@ export const appRouter = router({
         return await db.getAllUsers(input?.search);
       }),
 
-    // 批量创建学生
-    createStudentsBatch: protectedProcedure
+    // 批量创建学生 教师权限
+    createStudentsBatch: teacherProcedure
       .input(
         z.object({
           students: z.array(
@@ -165,11 +165,11 @@ export const appRouter = router({
       .input(
         z.object({
           name: z.string().optional(),
-          email: z.string().email().optional(),
+          email: z.string().email().optional().or(z.literal("")),
+          avatar: z.string().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (!ctx.user) throw new Error("未登录");
         return await auth.updateUserProfile(ctx.user.id, input);
       }),
   }),

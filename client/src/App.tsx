@@ -36,7 +36,6 @@ import StudentExamTaking from "./pages/student/ExamTaking";
 import AIAssistant from "./pages/student/AIAssistant";
 import StudentExperimentList from "./pages/student/ExperimentList";
 import Profile from "./pages/Profile";
-import ChangePassword from "./pages/ChangePassword";
 import StudentImport from "./pages/teacher/StudentImport";
 import CourseEdit from "./pages/teacher/CourseEdit";
 
@@ -89,7 +88,6 @@ function Router() {
 
       {/* Common Routes */}
       <Route path="/profile" component={Profile} />
-      <Route path="/change-password" component={ChangePassword} />
 
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />

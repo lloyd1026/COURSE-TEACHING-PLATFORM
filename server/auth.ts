@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { users } from "../drizzle/schema";
 import { getDb } from "./db";
 import crypto from "crypto";
+import { storagePut, storageDelete } from "./storage";
 
 /**
  * 密码哈希函数
@@ -174,16 +175,44 @@ export async function changePassword(userId: number, oldPassword: string, newPas
 /**
  * 更新用户信息
  */
-export async function updateUserProfile(userId: number, data: {
-  name?: string;
-  email?: string;
-}) {
+export async function updateUserProfile(userId: number, input: { name?: string; email?: string; avatar?: string }) {
+  // 1. 先查询当前用户，获取旧头像的 URL
   const db = await getDb();
   if (!db) throw new Error('Database not available');
+  
+  const [existingUser] = await db.select().from(users).where(eq(users.id, userId));
+  const oldAvatarUrl = existingUser?.avatar;
 
-  await db.update(users)
-    .set(data)
+  let finalAvatarUrl = input.avatar;
+
+  // 2. 如果传来的是新的 Base64 数据
+  if (input.avatar && input.avatar.startsWith('data:image')) {
+    try {
+      const base64Data = input.avatar.replace(/^data:image\/\w+;base64,/, "");
+      const buffer = Buffer.from(base64Data, 'base64');
+      
+      const fileName = `user-${userId}-${Date.now()}.jpg`;
+      const uploadResult = await storagePut(fileName, buffer, "image/jpeg");
+      finalAvatarUrl = uploadResult.url; 
+
+      // 3. 【核心逻辑】如果上传新图成功，且之前有旧图，则删除旧图
+      if (oldAvatarUrl && oldAvatarUrl.includes('supabase.co')) {
+        // 异步删除，不阻塞主流程
+        storageDelete(oldAvatarUrl).catch(err => console.error("删除旧头像失败:", err));
+      }
+
+    } catch (error) {
+      console.error("Supabase 存储失败:", error);
+    }
+  }
+
+  // 4. 更新数据库
+  return await db.update(users)
+    .set({ 
+      ...(input.name && { name: input.name }),
+      ...(input.email && { email: input.email }),
+      ...(finalAvatarUrl && { avatar: finalAvatarUrl }),
+      updatedAt: new Date() 
+    })
     .where(eq(users.id, userId));
-
-  return { success: true };
 }
