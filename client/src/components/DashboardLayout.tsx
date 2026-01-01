@@ -22,15 +22,27 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { 
-  LayoutDashboard, LogOut, PanelLeft, Users, Shield, 
-  BookOpen, GraduationCap, FileText, ClipboardList, 
-  Brain, FlaskConical, Settings, UserCircle, Key,
-  Library, Network
+import {
+  LayoutDashboard,
+  LogOut,
+  PanelLeft,
+  Users,
+  Shield,
+  BookOpen,
+  GraduationCap,
+  FileText,
+  ClipboardList,
+  Brain,
+  FlaskConical,
+  Settings,
+  UserCircle,
+  Key,
+  Library,
+  Network,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation, Link } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 
 // 管理员菜单
@@ -84,7 +96,7 @@ export default function DashboardLayout({
   }, [sidebarWidth]);
 
   if (loading) {
-    return <DashboardLayoutSkeleton />
+    return <DashboardLayoutSkeleton />;
   }
 
   if (!user) {
@@ -117,7 +129,10 @@ export default function DashboardLayout({
               OAuth登录
             </Button>
           </div>
-          <Link href="/" className="text-sm text-muted-foreground hover:text-primary">
+          <Link
+            href="/"
+            className="text-sm text-muted-foreground hover:text-primary"
+          >
             返回首页
           </Link>
         </div>
@@ -159,26 +174,28 @@ function DashboardLayoutContent({
 
   // 根据用户角色选择菜单
   const getMenuItems = () => {
-    if (location.startsWith('/admin')) return adminMenuItems;
-    if (location.startsWith('/teacher')) return teacherMenuItems;
-    if (location.startsWith('/student')) return studentMenuItems;
+    if (location.startsWith("/admin")) return adminMenuItems;
+    if (location.startsWith("/teacher")) return teacherMenuItems;
+    if (location.startsWith("/student")) return studentMenuItems;
     // 根据用户实际角色返回默认菜单
-    if (user?.role === 'admin') return adminMenuItems;
-    if (user?.role === 'teacher') return teacherMenuItems;
+    if (user?.role === "admin") return adminMenuItems;
+    if (user?.role === "teacher") return teacherMenuItems;
     return studentMenuItems;
   };
 
   const menuItems = getMenuItems();
-  const activeMenuItem = menuItems.find(item => location === item.path || location.startsWith(item.path + '/'));
+  const activeMenuItem = menuItems.find(
+    item => location === item.path || location.startsWith(item.path + "/")
+  );
 
   // 获取角色显示名称
   const getRoleName = () => {
-    if (location.startsWith('/admin')) return '管理员';
-    if (location.startsWith('/teacher')) return '教师';
-    if (location.startsWith('/student')) return '学生';
-    if (user?.role === 'admin') return '管理员';
-    if (user?.role === 'teacher') return '教师';
-    return '学生';
+    if (location.startsWith("/admin")) return "管理员";
+    if (location.startsWith("/teacher")) return "教师";
+    if (location.startsWith("/student")) return "学生";
+    if (user?.role === "admin") return "管理员";
+    if (user?.role === "teacher") return "教师";
+    return "学生";
   };
 
   useEffect(() => {
@@ -248,7 +265,9 @@ function DashboardLayoutContent({
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
               {menuItems.map(item => {
-                const isActive = location === item.path || location.startsWith(item.path + '/');
+                const isActive =
+                  location === item.path ||
+                  location.startsWith(item.path + "/");
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
@@ -272,11 +291,26 @@ function DashboardLayoutContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase() || 'U'}
-                    </AvatarFallback>
-                  </Avatar>
+                  {/* 自定义头像组件开始 */}
+                  <div className="h-9 w-9 rounded-full border border-slate-200 overflow-hidden bg-slate-100 flex-shrink-0 flex items-center justify-center relative">
+                    {user?.avatar ? (
+                      <img
+                        src={user.avatar}
+                        alt={user.name || "User"}
+                        className="h-full w-full object-cover"
+                        // 如果图片加载失败，可以在这里处理回退逻辑
+                        onError={e => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <span className="text-xs font-bold text-slate-500 uppercase">
+                        {user?.name?.charAt(0) || "U"}
+                      </span>
+                    )}
+                  </div>
+                  {/* 自定义头像组件结束 */}
+
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
                     <p className="text-sm font-medium truncate leading-none">
                       {user?.name || "-"}
@@ -289,36 +323,29 @@ function DashboardLayoutContent({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem
-                  onClick={() => setLocation('/profile')}
+                  onClick={() => setLocation("/profile")}
                   className="cursor-pointer"
                 >
                   <UserCircle className="mr-2 h-4 w-4" />
                   <span>个人信息</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setLocation('/change-password')}
-                  className="cursor-pointer"
-                >
-                  <Key className="mr-2 h-4 w-4" />
-                  <span>修改密码</span>
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() => setLocation('/admin/dashboard')}
+                  onClick={() => setLocation("/admin/dashboard")}
                   className="cursor-pointer"
                 >
                   <Shield className="mr-2 h-4 w-4" />
                   <span>管理员视图</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => setLocation('/teacher/dashboard')}
+                  onClick={() => setLocation("/teacher/dashboard")}
                   className="cursor-pointer"
                 >
                   <Users className="mr-2 h-4 w-4" />
                   <span>教师视图</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => setLocation('/student/dashboard')}
+                  onClick={() => setLocation("/student/dashboard")}
                   className="cursor-pointer"
                 >
                   <GraduationCap className="mr-2 h-4 w-4" />

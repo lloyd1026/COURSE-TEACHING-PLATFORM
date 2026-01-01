@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, Link } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -7,16 +8,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { 
   ArrowLeft, BookOpen, Users, FileText, ClipboardList, 
-  Loader2, Edit3, Calendar, GraduationCap, LayoutDashboard 
+  Loader2, Edit3, Calendar, GraduationCap, LayoutDashboard,
+  Trash2, Plus, ExternalLink
 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
   const courseId = parseInt(id || "0");
+  const utils = trpc.useUtils();
   
+  // 1. 数据获取
   const { data: course, isLoading } = trpc.courses.get.useQuery({ id: courseId });
   const { data: assignments } = trpc.assignments.list.useQuery();
   const { data: exams } = trpc.exams.list.useQuery();
+  // 获取已关联的班级数据
+  const { data: linkedClasses, isLoading: classesLoading } = trpc.courses.getLinkedClasses.useQuery({ courseId });
+
+  // 2. 解除关联 Mutation (可选)
+  const unlinkMutation = trpc.courses.unlinkClass.useMutation({
+    onSuccess: () => {
+      toast.success("已解除班级关联");
+      utils.courses.getLinkedClasses.invalidate({ courseId });
+    }
+  });
 
   // 数据过滤与统计
   const courseAssignments = assignments?.filter((a: any) => a.courseId === courseId) || [];
@@ -49,7 +64,6 @@ export default function CourseDetail() {
     );
   }
 
-  // 状态标签美化
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       active: "bg-emerald-50 text-emerald-600 border-emerald-100 shadow-sm",
@@ -105,7 +119,7 @@ export default function CourseDetail() {
         {/* 数据概览卡片 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
           {[
-            { icon: Users, label: "选课学生", value: "0", color: "text-indigo-600", bg: "bg-indigo-50" },
+            { icon: Users, label: "授课班级", value: linkedClasses?.length || 0, color: "text-indigo-600", bg: "bg-indigo-50" },
             { icon: FileText, label: "已发布作业", value: courseAssignments.length, color: "text-blue-600", bg: "bg-blue-50" },
             { icon: ClipboardList, label: "安排考试", value: courseExams.length, color: "text-orange-600", bg: "bg-orange-50" }
           ].map((stat, i) => (
@@ -127,11 +141,12 @@ export default function CourseDetail() {
         <Tabs defaultValue="outline" className="w-full">
           <TabsList className="bg-slate-100/50 p-1 rounded-2xl mb-6">
             <TabsTrigger value="outline" className="rounded-xl px-8 data-[state=active]:shadow-sm">课程大纲</TabsTrigger>
+            <TabsTrigger value="classes" className="rounded-xl px-8 data-[state=active]:shadow-sm">授课班级</TabsTrigger>
             <TabsTrigger value="assignments" className="rounded-xl px-8 data-[state=active]:shadow-sm">作业记录</TabsTrigger>
             <TabsTrigger value="exams" className="rounded-xl px-8 data-[state=active]:shadow-sm">考试记录</TabsTrigger>
           </TabsList>
 
-          {/* 课程大纲：富文本解析核心 */}
+          {/* 课程大纲 */}
           <TabsContent value="outline">
             <Card className="border-none shadow-xl shadow-slate-200/40 rounded-[2.5rem]">
               <CardHeader className="border-b border-slate-50 px-8 py-8">
@@ -140,7 +155,6 @@ export default function CourseDetail() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-10 py-10">
-                {/* 符合需求：通过 HTML 解析显示富文本 */}
                 <div className="prose prose-slate max-w-none prose-headings:font-black prose-headings:tracking-tight prose-p:leading-relaxed prose-li:my-1">
                   {course.description ? (
                     <div 
@@ -157,8 +171,74 @@ export default function CourseDetail() {
             </Card>
           </TabsContent>
 
+          {/* 授课班级 - 新增内容 */}
+          <TabsContent value="classes">
+            <Card className="border-none shadow-lg rounded-[2.5rem]">
+              <CardHeader className="px-8 pt-8 flex justify-between items-center">
+                <div>
+                  <CardTitle className="text-xl">当前授课班级</CardTitle>
+                  <CardDescription>关联后的班级学生将自动同步至此课程</CardDescription>
+                </div>
+                {/* 这里的跳转建议去课程编辑页或者弹窗关联 */}
+                <Link href={`/teacher/courses/${courseId}/edit?tab=classes`}>
+                  <Button variant="outline" size="sm" className="rounded-xl gap-2">
+                    <Plus className="h-4 w-4" /> 管理关联
+                  </Button>
+                </Link>
+              </CardHeader>
+              <CardContent className="px-8 pb-8">
+                {classesLoading ? (
+                  <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-200" /></div>
+                ) : linkedClasses && linkedClasses.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {linkedClasses.map((cls: any) => (
+                      <div key={cls.id} className="group p-5 bg-slate-50 rounded-2xl flex items-center justify-between border border-transparent hover:border-slate-200 transition-all">
+                        <div className="flex items-center gap-4">
+                          <div className="bg-white p-3 rounded-xl shadow-sm text-indigo-500">
+                            <Users className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800">{cls.name}</p>
+                            <p className="text-xs text-slate-400 font-medium">
+                              {cls.major} · {cls.grade}级 · {cls.studentCount || 0} 人
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Link href={`/teacher/classes/${cls.id}`}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-primary">
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-slate-400 hover:text-red-500"
+                            onClick={() => {
+                              if(confirm(`确定解除与【${cls.name}】的关联吗？`)) {
+                                unlinkMutation.mutate({ courseId, classId: cls.id });
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-16 bg-slate-50 rounded-[2rem]">
+                    <Users className="h-16 w-16 mx-auto mb-4 text-slate-200" />
+                    <p className="text-slate-400 font-medium">暂无关联的行政班级</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* 作业列表 */}
           <TabsContent value="assignments">
+            {/* 原有内容... */}
             <Card className="border-none shadow-lg rounded-[2.5rem]">
               <CardHeader className="px-8 pt-8">
                 <CardTitle className="text-xl">历史作业记录</CardTitle>
@@ -194,6 +274,7 @@ export default function CourseDetail() {
 
           {/* 考试记录 */}
           <TabsContent value="exams">
+            {/* 原有内容... */}
             <Card className="border-none shadow-lg rounded-[2.5rem]">
               <CardHeader className="px-8 pt-8">
                 <CardTitle className="text-xl">课程考试安排</CardTitle>

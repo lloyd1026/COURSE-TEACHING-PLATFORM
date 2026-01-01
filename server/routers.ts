@@ -3,7 +3,13 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router, protectedProcedure, teacherProcedure } from "./_core/trpc";
+import {
+  publicProcedure,
+  router,
+  protectedProcedure,
+  teacherProcedure,
+  adminProcedure,
+} from "./_core/trpc";
 import * as db from "./db";
 import { invokeLLM } from "./_core/llm";
 import * as auth from "./auth";
@@ -116,31 +122,11 @@ export const appRouter = router({
 
   // ==================== 用户管理 ====================
   users: router({
-    list: protectedProcedure
+    // 获取用户列表 管理员权限
+    list: adminProcedure
       .input(z.object({ search: z.string().optional() }).optional())
       .query(async ({ input }) => {
         return await db.getAllUsers(input?.search);
-      }),
-
-    // 批量创建学生 教师权限
-    createStudentsBatch: teacherProcedure
-      .input(
-        z.object({
-          students: z.array(
-            z.object({
-              username: z.string(),
-              password: z.string(),
-              name: z.string(),
-              studentId: z.string().optional(),
-              email: z.string().optional(),
-            })
-          ),
-          classId: z.number().optional(),
-        })
-      )
-      .mutation(async ({ input }) => {
-        const results = await auth.createStudentsBatch(input.students);
-        return results;
       }),
 
     // 修改密码
@@ -179,7 +165,7 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ search: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
-        if (ctx.user.role === 'admin') {
+        if (ctx.user.role === "admin") {
           return await db.getAllCourses(input?.search);
         }
         return await db.getCoursesByTeacherId(ctx.user.id, input?.search);
@@ -230,31 +216,116 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         return await db.deleteCourse(input.id);
       }),
+
+    // 获取已关联的班级
+    getLinkedClasses: teacherProcedure
+      .input(z.object({ courseId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getClassesByCourseId(input.courseId);
+      }),
+
+    // 关联班级
+    linkClass: teacherProcedure
+      .input(
+        z.object({
+          courseId: z.number(),
+          classId: z.number(),
+          semester: z.string(),
+          year: z.number(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return await db.linkClassToCourse(
+          input.courseId,
+          input.classId,
+          input.semester,
+          input.year
+        );
+      }),
+    // 取消关联班级
+    unlinkClass: teacherProcedure
+      .input(z.object({ courseId: z.number(), classId: z.number() }))
+      .mutation(async ({ input }) => {
+        return await db.unlinkClassFromCourse(input.courseId, input.classId);
+      }),
   }),
 
   // ==================== 班级管理 ====================
   classes: router({
-    list: protectedProcedure.query(async () => {
-      return await db.getAllClasses();
+    // 获取班级列表 管理员查看所有班级，教师只查看自己负责的班级
+    list: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role === "admin") {
+        return await db.getAllClasses();
+      }
+      return await db.getClassesByTeacherId(ctx.user.id);
     }),
-
-    get: protectedProcedure
+    // 获取班级详情
+    get: teacherProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         return await db.getClassById(input.id);
       }),
-
-    create: protectedProcedure
+    // 创建班级
+    create: teacherProcedure
       .input(
         z.object({
           name: z.string(),
           grade: z.number().optional(),
           major: z.string().optional(),
-          headTeacherId: z.number().optional(),
+          semester: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return await db.createClass({
+          ...input,
+          headTeacherId: ctx.user.id,
+        });
+      }),
+    // 获取班级学生名单
+    getStudents: teacherProcedure
+      .input(z.object({ classId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getStudentsByClassId(input.classId);
+      }),
+    // 关联课程列表
+    listCourses: teacherProcedure
+      .input(z.object({ classId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getLinkedCoursesByClassId(input.classId);
+      }),
+    // 批量创建学生 教师权限
+    createStudentsBatch: teacherProcedure
+      .input(
+        z.object({
+          classId: z.number(), // 强制要求传入班级ID，因为这是在班级详情页操作
+          students: z.array(
+            z.object({
+              studentId: z.string(), // 这里的学号同时作为 username
+              name: z.string(),
+            })
+          ),
         })
       )
       .mutation(async ({ input }) => {
-        return await db.createClass(input);
+        // 调用我们在 db.ts 中重写的那个“既开号又关联班级”的函数
+        // 确保你的 db.ts 里的函数名是 upsertStudentsToClass
+        const results = await db.upsertStudentsToClass(
+          input.classId,
+          input.students
+        );
+        return results;
+      }),
+
+    removeStudentsFromClassBatch: teacherProcedure
+      .input(
+        z.object({
+          // 使用 z.array 接收多个学号
+          studentIds: z.array(z.string()),
+        })
+      )
+      .mutation(async ({ input }) => {
+        // 调用 db 层的批量移除函数
+        return await db.removeStudentsFromClassBatch(input.studentIds);
       }),
   }),
 

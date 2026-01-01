@@ -16,7 +16,7 @@ import StudentDashboard from "./pages/student/Dashboard";
 import CourseList from "./pages/teacher/CourseList";
 import CourseDetail from "./pages/teacher/CourseDetail";
 import CourseCreate from "./pages/teacher/CourseCreate";
-import ClassList from "./pages/teacher/ClassList";
+import ClassManage from "./pages/teacher/ClassManage";
 import ClassDetail from "./pages/teacher/ClassDetail";
 import AssignmentList from "./pages/teacher/AssignmentList";
 import AssignmentDetail from "./pages/teacher/AssignmentDetail";
@@ -36,7 +36,6 @@ import StudentExamTaking from "./pages/student/ExamTaking";
 import AIAssistant from "./pages/student/AIAssistant";
 import StudentExperimentList from "./pages/student/ExperimentList";
 import Profile from "./pages/Profile";
-import StudentImport from "./pages/teacher/StudentImport";
 import CourseEdit from "./pages/teacher/CourseEdit";
 
 function Router() {
@@ -57,7 +56,7 @@ function Router() {
       <Route path="/teacher/courses/create" component={CourseCreate} />
       <Route path="/teacher/courses/:id/edit" component={CourseEdit} />
       <Route path="/teacher/courses/:id" component={CourseDetail} />
-      <Route path="/teacher/classes" component={ClassList} />
+      <Route path="/teacher/classes" component={ClassManage} />
       <Route path="/teacher/classes/:id" component={ClassDetail} />
       <Route path="/teacher/assignments" component={AssignmentList} />
       <Route path="/teacher/assignments/create" component={AssignmentCreate} />
@@ -82,9 +81,6 @@ function Router() {
       <Route path="/student/exams/:id/take" component={StudentExamTaking} />
       <Route path="/student/ai-assistant" component={AIAssistant} />
       <Route path="/student/experiments" component={StudentExperimentList} />
-
-      {/* Teacher Additional Routes */}
-      <Route path="/teacher/students/import" component={StudentImport} />
 
       {/* Common Routes */}
       <Route path="/profile" component={Profile} />

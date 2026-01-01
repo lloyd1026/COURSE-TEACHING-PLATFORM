@@ -97,51 +97,51 @@ export async function authenticateUser(username: string, password: string) {
 /**
  * 批量创建学生用户
  */
-export async function createStudentsBatch(students: Array<{
-  username: string;
-  password: string;
-  name: string;
-  studentId?: string;
-  email?: string;
-}>) {
-  const db = await getDb();
-  if (!db) throw new Error('Database not available');
+// export async function createStudentsBatch(students: Array<{
+//   username: string;
+//   password: string;
+//   name: string;
+//   studentId?: string;
+//   email?: string;
+// }>) {
+//   const db = await getDb();
+//   if (!db) throw new Error('Database not available');
 
-  const results: Array<{ success: boolean; username: string; error?: string }> = [];
+//   const results: Array<{ success: boolean; username: string; error?: string }> = [];
 
-  for (const student of students) {
-    try {
-      // 检查用户名是否已存在
-      const existing = await getUserByUsername(student.username);
-      if (existing) {
-        results.push({ success: false, username: student.username, error: '用户名已存在' });
-        continue;
-      }
+//   for (const student of students) {
+//     try {
+//       // 检查用户名是否已存在
+//       const existing = await getUserByUsername(student.username);
+//       if (existing) {
+//         results.push({ success: false, username: student.username, error: '用户名已存在' });
+//         continue;
+//       }
 
-      const hashedPassword = hashPassword(student.password);
+//       const hashedPassword = hashPassword(student.password);
       
-      await db.insert(users).values({
-        username: student.username,
-        password: hashedPassword,
-        name: student.name,
-        email: student.email || null,
-        loginMethod: 'system',
-        role: 'student',
-        lastSignedIn: new Date(),
-      });
+//       await db.insert(users).values({
+//         username: student.username,
+//         password: hashedPassword,
+//         name: student.name,
+//         email: student.email || null,
+//         loginMethod: 'system',
+//         role: 'student',
+//         lastSignedIn: new Date(),
+//       });
 
-      results.push({ success: true, username: student.username });
-    } catch (error) {
-      results.push({ 
-        success: false, 
-        username: student.username, 
-        error: error instanceof Error ? error.message : '创建失败' 
-      });
-    }
-  }
+//       results.push({ success: true, username: student.username });
+//     } catch (error) {
+//       results.push({ 
+//         success: false, 
+//         username: student.username, 
+//         error: error instanceof Error ? error.message : '创建失败' 
+//       });
+//     }
+//   }
 
-  return results;
-}
+//   return results;
+// }
 
 /**
  * 修改密码
