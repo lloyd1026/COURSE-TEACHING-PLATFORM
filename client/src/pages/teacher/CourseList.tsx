@@ -1,146 +1,184 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
 import { 
-  BookOpen, Plus, Search, Loader2, ChevronRight, 
-  LayoutGrid, Book, Star, Clock, Layers 
+  BookOpen, Plus, Loader2, Edit3, Trash2, Star 
 } from "lucide-react";
-import { Link } from "wouter";
-import { Badge } from "@/components/ui/badge";
+import CourseForm from "@/components/teacher/courses/CourseForm";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { useLocation } from "wouter";
+
+// 1. 引入通用组件
+import { ConfirmDeleteDialog } from "@/components/common/ConfirmDeleteDialog";
+import { Pagination } from "@/components/common/Pagination";
+import { FilterSearch, FilterTabs } from "@/components/common/FilterGroup";
 
 export default function CourseList() {
-  const { data: courses, isLoading } = trpc.courses.list.useQuery();
-  const [searchTerm, setSearchTerm] = useState("");
+  const [, setLocation] = useLocation();
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all"); // 预留状态筛选
 
-  const filteredCourses = courses?.filter(course =>
-    course.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    course.code.toLowerCase().includes(searchTerm.toLowerCase())
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 8;
+
+  const [selectedCourse, setSelectedCourse] = useState<any>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
+
+  const utils = trpc.useUtils();
+  const { data: courses, isLoading } = trpc.courses.list.useQuery();
+
+  const deleteMutation = trpc.courses.delete.useMutation({
+    onSuccess: () => {
+      toast.success("课程已移除");
+      utils.courses.list.invalidate();
+      setIsDeleteAlertOpen(false);
+    },
+    onError: err => toast.error(err.message),
+  });
+
+  // 筛选逻辑
+  const filteredCourses = useMemo(() => {
+    return (courses || []).filter(c => {
+      const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
+                          c.code.toLowerCase().includes(search.toLowerCase());
+      const matchStatus = statusFilter === "all" || c.status === statusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [courses, search, statusFilter]);
+
+  // 分页切片
+  const pagedCourses = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredCourses.slice(start, start + pageSize);
+  }, [filteredCourses, currentPage]);
+
+  // 筛选条件变化重置页码
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter]);
+
+  if (isLoading) return (
+    <div className="h-screen flex items-center justify-center">
+      <Loader2 className="h-5 w-5 animate-spin text-zinc-300" />
+    </div>
   );
 
   return (
     <DashboardLayout>
-      {/* 核心布局：锁定整页高度，局部滚动 */}
-      <div className="h-screen flex flex-col bg-[#F5F5F7] font-sans antialiased text-[#1D1D1F] overflow-hidden">
-        
-        {/* Apple Style Header */}
-        <header className="flex-none z-30 w-full bg-[#F5F5F7]/80 backdrop-blur-xl border-b border-gray-200/50">
-          <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-black p-1.5 rounded-lg shadow-sm">
-                <Book className="h-4 w-4 text-white" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold tracking-tight leading-none">我的课程</h1>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-1">管理并维护您的教学档案</p>
-              </div>
-            </div>
-            
-            <Link href="/teacher/courses/create">
-              <Button className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-5 h-9 text-sm font-medium transition-all shadow-sm shadow-blue-100">
-                <Plus className="mr-2 h-4 w-4" /> 创建课程
-              </Button>
-            </Link>
-          </div>
-        </header>
-
-        {/* 独立滑动的控制区与列表 */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth px-6 py-8">
-          <div className="max-w-7xl mx-auto space-y-8">
-            
-            {/* 搜索栏：居中或左侧大尺寸搜索框 */}
-            <div className="flex items-center justify-between">
-              <div className="relative group w-full max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
-                <Input
-                  placeholder="搜索课程名称、课程代码..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 bg-white border-none rounded-2xl h-11 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-blue-500/10 transition-all"
-                />
-              </div>
-              <div className="hidden md:flex gap-2">
-                <Button variant="ghost" size="icon" className="rounded-full text-gray-400 bg-white shadow-sm border border-gray-100">
-                  <LayoutGrid className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="rounded-full text-gray-400">
-                  <Layers className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            {isLoading ? (
-              <div className="flex flex-col items-center justify-center py-20">
-                <Loader2 className="h-6 w-6 animate-spin text-blue-500 opacity-20" />
-                <p className="mt-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest">正在载入课程档案</p>
-              </div>
-            ) : filteredCourses && filteredCourses.length > 0 ? (
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pb-20">
-                {filteredCourses.map((course) => (
-                  <Link key={course.id} href={`/teacher/courses/${course.id}`}>
-                    <div className="group relative bg-white rounded-[32px] p-6 border border-white shadow-xl shadow-gray-200/40 transition-all hover:shadow-2xl hover:-translate-y-1 cursor-pointer flex flex-col h-full overflow-hidden">
-                      {/* 背景微光效果 */}
-                      <div className="absolute -right-6 -top-6 h-24 w-24 bg-gray-50 rounded-full blur-2xl group-hover:bg-blue-50 transition-all" />
-                      
-                      <div className="relative z-10 flex flex-col h-full">
-                        <div className="flex items-center justify-between mb-6">
-                          <div className="h-12 w-12 rounded-2xl bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-blue-600 group-hover:text-white transition-all duration-500">
-                            <BookOpen className="h-6 w-6" />
-                          </div>
-                          <Badge variant="outline" className={`rounded-full px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest border-none ${
-                            course.status === 'active' ? 'bg-green-50 text-green-600' : 
-                            course.status === 'draft' ? 'bg-gray-100 text-gray-400' : 'bg-red-50 text-red-600'
-                          }`}>
-                            {course.status === 'active' ? '● 授课中' : course.status === 'draft' ? '草稿' : '已归档'}
-                          </Badge>
-                        </div>
-
-                        <div className="flex-1">
-                          <h3 className="text-lg font-bold text-[#1D1D1F] tracking-tight group-hover:text-blue-600 transition-colors leading-snug">
-                            {course.name}
-                          </h3>
-                          <p className="text-[10px] font-mono text-gray-400 mt-1 uppercase tracking-tighter">
-                            CODE: {course.code}
-                          </p>
-                        </div>
-
-                        <div className="mt-8 pt-6 border-t border-gray-50 flex items-center justify-between text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                          <div className="flex items-center gap-3">
-                            <span className="flex items-center gap-1"><Star className="h-3 w-3" /> {course.credits} Credits</span>
-                          </div>
-                          <div className="h-7 w-7 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-blue-50 group-hover:text-blue-600 transition-all">
-                            <ChevronRight className="h-4 w-4" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-32 bg-white rounded-[40px] border border-dashed border-gray-200">
-                <div className="h-20 w-20 rounded-full bg-gray-50 flex items-center justify-center mb-6">
-                  <BookOpen className="h-10 w-10 text-gray-200" />
-                </div>
-                <h3 className="text-lg font-bold text-gray-800">暂无课程档案</h3>
-                <p className="text-sm text-gray-400 mt-1">您可以开始创建您的第一门教学课程</p>
-                <Link href="/teacher/courses/create">
-                  <Button className="mt-6 rounded-full bg-black text-white px-8 h-10 font-bold shadow-lg shadow-gray-200">
-                    <Plus className="mr-2 h-4 w-4" /> 立即创建
-                  </Button>
-                </Link>
-              </div>
-            )}
-          </div>
-        </main>
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[5%] left-[10%] w-[400px] h-[400px] bg-blue-50/30 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[10%] right-[10%] w-[350px] h-[350px] bg-indigo-50/30 rounded-full blur-[100px]" />
       </div>
 
-      <style>{`
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-      `}</style>
+      <div className="relative h-[calc(100vh-4rem)] flex flex-col max-w-6xl mx-auto px-6 py-8 overflow-hidden">
+        <header className="flex-shrink-0 flex justify-between items-end mb-10">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">课程档案</h1>
+            <p className="text-zinc-400 text-[11px] mt-1 tracking-widest uppercase">管理与维护您的教学大纲</p>
+          </div>
+          <Button 
+            onClick={() => { setSelectedCourse(null); setIsFormOpen(true); }} 
+            className="rounded-full bg-zinc-900 text-white h-9 px-6 text-[12px] font-medium shadow-sm hover:scale-105 active:scale-95 transition-all"
+          >
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> 开设课程
+          </Button>
+        </header>
+
+        {/* 2. 使用封装后的 FilterSearch 和 FilterTabs */}
+        <div className="flex-shrink-0 flex items-center gap-4 mb-8">
+          <FilterSearch 
+            value={search} 
+            onChange={setSearch} 
+            placeholder="搜索课程名称或代码..." 
+          />
+          <FilterTabs 
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { label: "全部", value: "all" },
+              { label: "授课中", value: "active" },
+              { label: "草稿", value: "draft" },
+              { label: "归档", value: "archived" },
+            ]}
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
+          <div className="grid gap-5 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pb-10">
+            {pagedCourses.map(course => (
+              <div 
+                key={course.id} 
+                className="group relative p-6 bg-white/50 backdrop-blur-md border border-white/80 rounded-[2rem] hover:bg-white/80 hover:border-zinc-200 hover:scale-[1.02] transition-all duration-300 shadow-sm flex flex-col h-full cursor-pointer" 
+                onClick={() => setLocation(`/teacher/courses/${course.id}`)}
+              >
+                <div className="flex justify-between items-start mb-6">
+                  <div className="h-10 w-10 rounded-2xl bg-white flex items-center justify-center text-zinc-400 group-hover:bg-zinc-900 group-hover:text-white transition-all shadow-sm">
+                    <BookOpen className="h-5 w-5" />
+                  </div>
+                  <Badge 
+                    variant="secondary" 
+                    className={`rounded-full px-2.5 py-0 border-none text-[9px] font-medium ${
+                      course.status === "active" ? "bg-emerald-50 text-emerald-600" : "bg-zinc-100 text-zinc-400"
+                    }`}
+                  >
+                    {course.status === "active" ? "授课中" : course.status === "draft" ? "草稿" : "已归档"}
+                  </Badge>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-[15px] font-medium text-zinc-900 leading-snug mb-1">{course.name}</h3>
+                  <p className="text-[10px] font-mono text-zinc-400 uppercase">{course.code}</p>
+                </div>
+                <div className="mt-8 pt-4 border-t border-zinc-100/50 flex items-center justify-between">
+                  <span className="text-[10px] text-zinc-400 font-medium tracking-wider flex items-center gap-1">
+                    <Star className="h-2.5 w-2.5 opacity-60" /> {course.credits} 学分
+                  </span>
+                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-zinc-400 hover:text-zinc-900 hover:scale-110 active:scale-90 transition-all" onClick={() => { setSelectedCourse(course); setIsFormOpen(true); }}><Edit3 className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-zinc-300 hover:text-red-500 hover:scale-110 active:scale-90 transition-all" onClick={() => { setSelectedCourse(course); setIsDeleteAlertOpen(true); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {pagedCourses.length === 0 && (
+             <div className="py-20 text-center text-zinc-300 text-[11px] tracking-widest uppercase font-medium">暂无课程记录</div>
+          )}
+        </div>
+
+        <div className="flex-none bg-white/20 backdrop-blur-sm rounded-t-3xl mt-2 px-4">
+          <Pagination 
+            currentPage={currentPage}
+            totalItems={filteredCourses.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      </div>
+
+      {/* 弹窗部分 */}
+      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+        <DialogContent className="max-w-4xl p-0 rounded-[2.5rem] overflow-hidden border-white/60 bg-white/80 backdrop-blur-2xl h-[90vh] focus:outline-none shadow-2xl">
+          <div className="h-full overflow-y-auto p-10 custom-scrollbar">
+            <CourseForm initialData={selectedCourse} onSuccess={() => { setIsFormOpen(false); utils.courses.list.invalidate(); }} />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDeleteDialog 
+        isOpen={isDeleteAlertOpen}
+        onOpenChange={setIsDeleteAlertOpen}
+        onConfirm={() => deleteMutation.mutate({ id: selectedCourse?.id })}
+        isLoading={deleteMutation.isPending}
+        title="移除课程档案？"
+        description={`确定要永久删除“${selectedCourse?.name}”吗？此操作将同步移除关联的教学大纲。`}
+      />
+
+      <style>{`.custom-scrollbar::-webkit-scrollbar { width: 3px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 10px; }`}</style>
     </DashboardLayout>
   );
 }

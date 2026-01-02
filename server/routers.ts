@@ -281,6 +281,27 @@ export const appRouter = router({
           headTeacherId: ctx.user.id,
         });
       }),
+    // 更新班级
+    update: teacherProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          name: z.string().optional(),
+          grade: z.number().optional(),
+          major: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        return await db.updateClass(id, data);
+      }),
+
+    // 删除班级
+    delete: teacherProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return await db.deleteClass(input.id);
+      }),
     // 获取班级学生名单
     getStudents: teacherProcedure
       .input(z.object({ classId: z.number() }))
@@ -331,19 +352,27 @@ export const appRouter = router({
 
   // ==================== 作业管理 ====================
   assignments: router({
+    // 获取作业列表, teacher查看自己创建的作业，学生查看自己班级的作业
     list: protectedProcedure
-      .input(z.object({ courseId: z.number().optional() }).optional())
-      .query(async ({ input }) => {
-        return await db.getAllAssignments(input?.courseId);
-      }),
-
+      .input(
+      z.object({ 
+        courseId: z.number().optional(),
+        teacherId: z.number().optional() 
+      }).optional()
+    )
+    .query(async ({ input }) => {
+      // 直接解构透传，逻辑完全由 db 层处理
+      return await db.getAllAssignments(input?.teacherId, input?.courseId);
+    }),
+    
+    // 获取作业详情
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         return await db.getAssignmentById(input.id);
       }),
-
-    create: protectedProcedure
+    // 增删改，教师权限
+    create: teacherProcedure
       .input(
         z.object({
           title: z.string(),
@@ -351,23 +380,58 @@ export const appRouter = router({
           courseId: z.number(),
           classId: z.number(),
           dueDate: z.date(),
-          createdBy: z.number(),
+          status: z.enum(["draft", "published", "closed"]).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return await db.createAssignment({
+          ...input,
+          status: input.status ?? "published",
+          createdBy: ctx.user.id, // 自动使用当前登录教师ID
+        });
+      }),
+
+    update: teacherProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          title: z.string().optional(),
+          description: z.string().optional(),
+          courseId: z.number().optional(),
+          classId: z.number().optional(),
+          dueDate: z.date().optional(),
+          status: z.enum(["draft", "published", "closed"]).optional(),
         })
       )
       .mutation(async ({ input }) => {
-        return await db.createAssignment({
-          ...input,
-          status: "published",
-        });
+        const { id, ...data } = input;
+        return await db.updateAssignment(id, data);
+      }),
+
+    delete: teacherProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return await db.deleteAssignment(input.id);
       }),
   }),
 
   // ==================== 题库管理 ====================
   questions: router({
-    list: protectedProcedure
-      .input(z.object({ courseId: z.number().optional() }).optional())
-      .query(async ({ input }) => {
-        return await db.getAllQuestions(input?.courseId);
+    list: teacherProcedure
+      .input(
+        z
+          .object({
+            courseId: z.number().optional(),
+            search: z.string().optional(),
+          })
+          .optional()
+      )
+      .query(async ({ ctx, input }) => {
+        return await db.getQuestionsByTeacherId(
+          ctx.user.id,
+          input?.courseId,
+          input?.search
+        );
       }),
 
     get: protectedProcedure
@@ -376,10 +440,17 @@ export const appRouter = router({
         return await db.getQuestionById(input.id);
       }),
 
-    create: protectedProcedure
+    create: teacherProcedure
       .input(
         z.object({
-          questionTypeId: z.number(),
+          type: z.enum([
+            "single_choice",
+            "multiple_choice",
+            "fill_blank",
+            "true_false",
+            "essay",
+            "programming",
+          ]),
           courseId: z.number(),
           title: z.string(),
           content: z.string().optional(),
@@ -387,11 +458,47 @@ export const appRouter = router({
           answer: z.string().optional(),
           analysis: z.string().optional(),
           difficulty: z.enum(["easy", "medium", "hard"]),
-          createdBy: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return await db.createQuestion({
+          ...input,
+          createdBy: ctx.user.id, // 自动取当前登录教师的 ID，不再依赖前端传
+        });
+      }),
+
+    update: teacherProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          type: z
+            .enum([
+              "single_choice",
+              "multiple_choice",
+              "fill_blank",
+              "true_false",
+              "essay",
+              "programming",
+            ])
+            .optional(),
+          courseId: z.number().optional(),
+          title: z.string().optional(),
+          content: z.string().optional(),
+          options: z.any().optional(),
+          answer: z.string().optional(),
+          analysis: z.string().optional(),
+          difficulty: z.enum(["easy", "medium", "hard"]).optional(),
         })
       )
       .mutation(async ({ input }) => {
-        return await db.createQuestion(input);
+        const { id, ...data } = input;
+        return await db.updateQuestion(id, data);
+      }),
+
+    delete: teacherProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return await db.deleteQuestion(input.id);
       }),
   }),
 

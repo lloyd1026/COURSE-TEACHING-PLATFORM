@@ -15,14 +15,11 @@ import TeacherDashboard from "./pages/teacher/Dashboard";
 import StudentDashboard from "./pages/student/Dashboard";
 import CourseList from "./pages/teacher/CourseList";
 import CourseDetail from "./pages/teacher/CourseDetail";
-import CourseCreate from "./pages/teacher/CourseCreate";
 import ClassManage from "./pages/teacher/ClassManage";
 import ClassDetail from "./pages/teacher/ClassDetail";
 import AssignmentList from "./pages/teacher/AssignmentList";
 import AssignmentDetail from "./pages/teacher/AssignmentDetail";
-import AssignmentCreate from "./pages/teacher/AssignmentCreate";
 import QuestionBank from "./pages/teacher/QuestionBank";
-import QuestionCreate from "./pages/teacher/QuestionCreate";
 import ExamList from "./pages/teacher/ExamList";
 import ExamCreate from "./pages/teacher/ExamCreate";
 import ExamDetail from "./pages/teacher/ExamDetail";
@@ -36,7 +33,6 @@ import StudentExamTaking from "./pages/student/ExamTaking";
 import AIAssistant from "./pages/student/AIAssistant";
 import StudentExperimentList from "./pages/student/ExperimentList";
 import Profile from "./pages/Profile";
-import CourseEdit from "./pages/teacher/CourseEdit";
 
 function Router() {
   return (
@@ -53,16 +49,12 @@ function Router() {
       {/* Teacher Routes */}
       <Route path="/teacher/dashboard" component={TeacherDashboard} />
       <Route path="/teacher/courses" component={CourseList} />
-      <Route path="/teacher/courses/create" component={CourseCreate} />
-      <Route path="/teacher/courses/:id/edit" component={CourseEdit} />
       <Route path="/teacher/courses/:id" component={CourseDetail} />
       <Route path="/teacher/classes" component={ClassManage} />
       <Route path="/teacher/classes/:id" component={ClassDetail} />
       <Route path="/teacher/assignments" component={AssignmentList} />
-      <Route path="/teacher/assignments/create" component={AssignmentCreate} />
       <Route path="/teacher/assignments/:id" component={AssignmentDetail} />
       <Route path="/teacher/questions" component={QuestionBank} />
-      <Route path="/teacher/questions/create" component={QuestionCreate} />
       <Route path="/teacher/exams" component={ExamList} />
       <Route path="/teacher/exams/create" component={ExamCreate} />
       <Route path="/teacher/exams/:id" component={ExamDetail} />

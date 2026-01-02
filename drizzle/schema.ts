@@ -154,23 +154,11 @@ export const assignmentSubmissions = mysqlTable("assignmentSubmissions", {
 });
 
 /**
- * 题型表
- */
-export const questionTypes = mysqlTable("questionTypes", {
-  id: int("id").autoincrement().primaryKey(),
-  courseId: int("courseId").notNull(),
-  name: varchar("name", { length: 50 }).notNull(),
-  description: text("description"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-/**
  * 题库表
  */
 export const questions = mysqlTable("questions", {
   id: int("id").autoincrement().primaryKey(),
-  questionTypeId: int("questionTypeId").notNull(),
+  type: mysqlEnum("type", ["single_choice", "multiple_choice", "fill_blank", "true_false", "essay", "programming"]).notNull(),
   courseId: int("courseId").notNull(),
   title: text("title").notNull(),
   content: text("content"),
@@ -321,7 +309,6 @@ export type Class = typeof classes.$inferSelect;
 export type Course = typeof courses.$inferSelect;
 export type Assignment = typeof assignments.$inferSelect;
 export type AssignmentSubmission = typeof assignmentSubmissions.$inferSelect;
-export type QuestionType = typeof questionTypes.$inferSelect;
 export type Question = typeof questions.$inferSelect;
 export type Exam = typeof exams.$inferSelect;
 export type ExamAnswer = typeof examAnswers.$inferSelect;

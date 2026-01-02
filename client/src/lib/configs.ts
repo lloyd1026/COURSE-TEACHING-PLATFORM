@@ -40,14 +40,14 @@ export function getSemestersConfig(mode: 'history' | 'create' = 'history', start
 
 /**
  * 生成年级列表 (Grade List)
- * 逻辑：从今年开始，往后推 3 年
+ * 逻辑：从今年开始，往前推 4 年
  */
 export function generateGrades() {
   const currentYear = new Date().getFullYear();
   const grades: { label: string; value: number }[] = [];
 
-  for (let i = 0; i <= 3; i++) {
-    const year = currentYear + i;
+  for (let i = 0; i <= 4; i++) {
+    const year = currentYear - i;
     grades.push({
       label: `${year} 级`,
       value: year
@@ -77,3 +77,19 @@ export const COMPUTER_MAJORS = [
 ] as const;
 
 export type ComputerMajor = typeof COMPUTER_MAJORS[number];
+
+// 前端 config 定义
+export const QUESTION_TYPE_CONFIG = {
+  single_choice: { label: "单选题", color: "blue", icon: "Radio" },
+  multiple_choice: { label: "多选题", color: "purple", icon: "CheckSquare" },
+  fill_blank: { label: "填空题", color: "orange", icon: "Type" },
+  true_false: { label: "判断题", color: "green", icon: "CheckCircle" },
+  essay: { label: "问答题", color: "yellow", icon: "FileText" },
+  programming: { label: "编程题", color: "slate", icon: "Code" },
+} as const;
+
+export const DIFFICULTY_CONFIG = {
+  easy: { label: "简单", variant: "success" },
+  medium: { label: "中等", variant: "warning" },
+  hard: { label: "困难", variant: "destructive" },
+} as const;

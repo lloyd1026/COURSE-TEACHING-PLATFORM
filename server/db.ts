@@ -223,9 +223,40 @@ export async function updateCourse(
 
 export async function deleteCourse(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("数据库连接失败");
 
+  // 1. 拦截检查：是否有发布的作业
+  const [linkedAssignment] = await db
+    .select({ id: assignments.id })
+    .from(assignments)
+    .where(eq(assignments.courseId, id))
+    .limit(1);
+  if (linkedAssignment) throw new Error("无法删除：该课程已有发布的作业。");
+
+  // 2. 拦截检查：题库是否为空
+  const [linkedQuestion] = await db
+    .select({ id: questions.id })
+    .from(questions)
+    .where(eq(questions.courseId, id))
+    .limit(1);
+  if (linkedQuestion) throw new Error("无法删除：该课程题库中仍有题目。");
+
+  // 3. 【新增】拦截检查：是否仍有关联的班级
+  // 如果课程还挂在某个班级的课表里，直接删除会导致班级教学计划错乱
+  const linkedClassesCount = await db
+    .select({ id: courseClasses.classId })
+    .from(courseClasses)
+    .where(eq(courseClasses.courseId, id));
+
+  if (linkedClassesCount.length > 0) {
+    throw new Error(`无法删除：仍有 ${linkedClassesCount.length} 个班级关联此课程，请先在班级管理中解除关联。`);
+  }
+
+  // 4. 执行物理删除
+  // 虽然上面检查了 count，但为了冗余安全，还是保留清理中间表的动作
+  await db.delete(courseClasses).where(eq(courseClasses.courseId, id));
   await db.delete(courses).where(eq(courses.id, id));
+  
   return { success: true };
 }
 
@@ -355,6 +386,47 @@ export async function createClass(data: typeof classes.$inferInsert) {
   const result = await db.insert(classes).values(data);
   return { id: Number((result as any).insertId) };
 }
+// 更新班级信息
+export async function updateClass(id: number, data: Partial<typeof classes.$inferInsert>) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+  return await db.update(classes).set(data).where(eq(classes.id, id));
+}
+
+/**
+ * 安全删除班级
+ * 拦截规则：1. 班级内有学生不可删  2. 班级已关联课程不可删
+ */
+export async function deleteClass(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  // 1. 检查是否有学生
+  const linkedStudents = await db
+    .select({ id: students.id })
+    .from(students)
+    .where(eq(students.classId, id))
+    .limit(1);
+
+  if (linkedStudents.length > 0) {
+    throw new Error("无法删除：该班级内尚有学生，请先迁移学生档案。");
+  }
+
+  // 2. 检查是否有关联课程（教学计划）
+  const linkedCourseClasses = await db
+    .select({ courseId: courseClasses.courseId })
+    .from(courseClasses)
+    .where(eq(courseClasses.classId, id))
+    .limit(1);
+
+  if (linkedCourseClasses.length > 0) {
+    throw new Error("无法删除：该班级已有教学计划（关联课程），请先解除课程关联。");
+  }
+
+  // 3. 执行删除
+  await db.delete(classes).where(eq(classes.id, id));
+  return { success: true };
+}
 
 // 获取班级下的所有学生（用于表格展示）
 export async function getStudentsByClassId(classId: number) {
@@ -456,21 +528,40 @@ export async function removeStudentsFromClassBatch(studentIds: string[]) {
 
 // ==================== 作业管理 ====================
 
-export async function getAllAssignments(courseId?: number) {
+// 根据课程 ID 获取作业列表，支持联查课程和班级名称
+export async function getAllAssignments(teacherId?: number, courseId?: number) {
   const db = await getDb();
   if (!db) return [];
 
+  const filters = [];
+
+  // 如果传了教师 ID，则按教师过滤
+  if (teacherId) {
+    filters.push(eq(assignments.createdBy, teacherId));
+  }
+  
+  // 如果传了课程 ID，则按课程过滤
   if (courseId) {
-    return await db
-      .select()
-      .from(assignments)
-      .where(eq(assignments.courseId, courseId))
-      .orderBy(desc(assignments.createdAt));
+    filters.push(eq(assignments.courseId, courseId));
   }
 
   return await db
-    .select()
+    .select({
+      id: assignments.id,
+      title: assignments.title,
+      description: assignments.description,
+      status: assignments.status,
+      dueDate: assignments.dueDate,
+      createdAt: assignments.createdAt,
+      courseId: assignments.courseId,
+      classId: assignments.classId,
+      courseName: courses.name,
+      className: classes.name,
+    })
     .from(assignments)
+    .leftJoin(courses, eq(assignments.courseId, courses.id))
+    .leftJoin(classes, eq(assignments.classId, classes.id))
+    .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(assignments.createdAt));
 }
 
@@ -494,8 +585,23 @@ export async function createAssignment(data: typeof assignments.$inferInsert) {
   return { id: Number((result as any).insertId) };
 }
 
+// 更新作业信息
+export async function updateAssignment(id: number, data: Partial<typeof assignments.$inferInsert>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return await db.update(assignments).set(data).where(eq(assignments.id, id));
+}
+
+// 删除（撤回）作业
+export async function deleteAssignment(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return await db.delete(assignments).where(eq(assignments.id, id));
+}
+
 // ==================== 题库管理 ====================
 
+// to be deleted
 export async function getAllQuestions(courseId?: number) {
   const db = await getDb();
   if (!db) return [];
@@ -511,6 +617,47 @@ export async function getAllQuestions(courseId?: number) {
   return await db.select().from(questions).orderBy(desc(questions.createdAt));
 }
 
+// 查询某教师创建的题目列表，支持按课程和搜索关键词过滤
+export async function getQuestionsByTeacherId(
+  teacherId: number,
+  courseId?: number,
+  search?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  // 1. 准备基础过滤条件：必须是当前教师创建的
+  const filters = [eq(questions.createdBy, teacherId)];
+
+  // 2. 动态增加课程过滤
+  if (courseId) {
+    filters.push(eq(questions.courseId, courseId));
+  }
+
+  // 3. 动态增加搜索过滤
+  if (search) {
+    filters.push(like(questions.content, `%${search}%`));
+  }
+
+  // 4. 执行查询：使用 and(...filters) 将所有条件合并
+  return await db
+    .select({
+      id: questions.id,
+      type: questions.type,
+      content: questions.content,
+      difficulty: questions.difficulty,
+      answer: questions.answer,
+      analysis: questions.analysis,
+      options: questions.options,
+      courseId: questions.courseId,
+      courseName: courses.name,
+    })
+    .from(questions)
+    .leftJoin(courses, eq(questions.courseId, courses.id))
+    .where(and(...filters))
+    .orderBy(desc(questions.createdAt));
+}
+// to be deleted
 export async function getQuestionById(id: number) {
   const db = await getDb();
   if (!db) return null;
@@ -529,6 +676,21 @@ export async function createQuestion(data: typeof questions.$inferInsert) {
 
   const result = await db.insert(questions).values(data);
   return { id: Number((result as any).insertId) };
+}
+
+export async function updateQuestion(
+  id: number,
+  data: Partial<typeof questions.$inferInsert>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return await db.update(questions).set(data).where(eq(questions.id, id));
+}
+
+export async function deleteQuestion(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return await db.delete(questions).where(eq(questions.id, id));
 }
 
 // ==================== 考试管理 ====================
