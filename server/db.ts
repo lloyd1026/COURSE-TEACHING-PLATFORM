@@ -1,4 +1,4 @@
-import { eq, desc, and, like, or } from "drizzle-orm";
+import { eq, desc, and, like, or, inArray, asc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -14,10 +14,11 @@ import {
   knowledgePoints,
   chapters,
   courseClasses,
+  aiConversations,
+  aiMessages,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { hashPassword } from "./auth";
-import { inArray } from "drizzle-orm";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -160,6 +161,7 @@ export async function getAllCourses(searchQuery?: string) {
   return await db.select().from(courses).orderBy(desc(courses.createdAt));
 }
 
+// 获取某教师创建的课程列表，支持搜索过滤
 export async function getCoursesByTeacherId(
   teacherId: number,
   searchQuery?: string
@@ -190,6 +192,48 @@ export async function getCoursesByTeacherId(
     .orderBy(desc(courses.createdAt));
 }
 
+/**
+ * 根据学生（用户）ID 获取其所属班级关联的所有课程
+ * 逻辑：users.id -> students.userId -> students.classId -> courseClasses.classId -> courses
+ */
+export async function getCoursesByStudentId(userId: number, searchQuery?: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const studentCourses = await db
+    .select({
+      id: courses.id,
+      name: courses.name,
+      code: courses.code,
+      credits: courses.credits,
+      status: courses.status,
+      description: courses.description,
+      semester: courses.semester,
+    })
+    .from(courses)
+    // 1. 连中间表：找课程对应的班级
+    .innerJoin(courseClasses, eq(courses.id, courseClasses.courseId))
+    // 2. 连学生扩展表：通过班级 ID 匹配
+    .innerJoin(students, eq(courseClasses.classId, students.classId))
+    // 3. 过滤条件：匹配当前登录用户的 ID
+    .where(
+      and(
+        eq(students.userId, userId), // 这里的 userId 是从 ctx.user.id 传进来的
+        eq(courses.status, "active"), // 学生通常只看激活状态的课
+        searchQuery 
+          ? or(
+              like(courses.name, `%${searchQuery}%`),
+              like(courses.code, `%${searchQuery}%`)
+            ) 
+          : undefined
+      )
+    )
+    .orderBy(desc(courses.createdAt));
+
+  return studentCourses;
+}
+
+// 根据课程 ID 获取课程详情
 export async function getCourseById(id: number) {
   const db = await getDb();
   if (!db) return null;
@@ -260,7 +304,7 @@ export async function deleteCourse(id: number) {
   return { success: true };
 }
 
-// 1. 获取某个课程已经关联的所有班级
+// 获取某个课程已经关联的所有班级
 export async function getClassesByCourseId(courseId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -277,10 +321,7 @@ export async function getClassesByCourseId(courseId: number) {
     .where(eq(courseClasses.courseId, courseId));
 }
 
-/**
- * 将某个行政班级关联到特定课程
- * 约束：只有状态为 'active' 的课程允许关联
- */
+// 约束：将某个行政班级关联到状态为 'active' 的课程
 export async function linkClassToCourse(
   courseId: number,
   classId: number,
@@ -332,9 +373,7 @@ export async function linkClassToCourse(
   }
 }
 
-/**
- * 解除班级与课程的关联
- */
+// 解除班级与课程的关联
 export async function unlinkClassFromCourse(courseId: number, classId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -565,6 +604,40 @@ export async function getAllAssignments(teacherId?: number, courseId?: number) {
     .orderBy(desc(assignments.createdAt));
 }
 
+/**
+ * 根据学生（用户）ID 获取其所属班级的所有作业
+ * 逻辑：assignments.classId -> students.classId (通过 students.userId 过滤)
+ */
+export async function getAssignmentsByStudentId(userId: number, courseId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      id: assignments.id,
+      title: assignments.title,
+      description: assignments.description,
+      status: assignments.status,
+      dueDate: assignments.dueDate,
+      createdAt: assignments.createdAt,
+      courseId: assignments.courseId,
+      courseName: courses.name, // 连表拿课程名
+    })
+    .from(assignments)
+    // 1. 连课程表：为了拿课程名字展示
+    .innerJoin(courses, eq(assignments.courseId, courses.id))
+    // 2. 核心：连学生表，通过班级 ID 匹配
+    .innerJoin(students, eq(assignments.classId, students.classId))
+    .where(
+      and(
+        eq(students.userId, userId),   // 匹配当前学生
+        eq(assignments.status, "published"), // 学生只看已发布的
+        courseId ? eq(assignments.courseId, courseId) : undefined // 如果传了 ID 则精准过滤
+      )
+    )
+    .orderBy(desc(assignments.createdAt));
+}
+
 export async function getAssignmentById(id: number) {
   const db = await getDb();
   if (!db) return null;
@@ -786,6 +859,69 @@ export async function getKnowledgePointsByChapterId(chapterId: number) {
     .select()
     .from(knowledgePoints)
     .where(eq(knowledgePoints.chapterId, chapterId));
+}
+
+// ==================== AI 助教 ====================
+// 获取学生的会话列表
+export async function getAIConversationsByStudent(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select()
+    .from(aiConversations)
+    .where(eq(aiConversations.studentId, studentId))
+    .orderBy(desc(aiConversations.updatedAt));
+}
+
+// 创建新会话
+export async function createAIConversation(data: { 
+  studentId: number; 
+  assignmentId?: number; 
+  title: string 
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database connection failed");
+
+  const [result] = await db.insert(aiConversations).values(data);
+  
+  const newId = result.insertId;
+  
+  const newConv = await db
+    .select()
+    .from(aiConversations)
+    .where(eq(aiConversations.id, newId))
+    .limit(1);
+
+  return newConv; // 返回包含新创建会话的数组
+}
+
+// 获取会话内的消息
+export async function getAIMessagesByConversation(conversationId: number, limitCount?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database connection failed");
+  let query = db
+    .select()
+    .from(aiMessages)
+    .where(eq(aiMessages.conversationId, conversationId))
+    .orderBy(asc(aiMessages.createdAt));
+
+  if (limitCount) {
+    // 如果是用于上下文，通常取最近的消息，这里逻辑根据需求可调整
+    // 此处简单起见直接取全部，或根据 limitCount 截取
+  }
+  
+  return await query;
+}
+
+// 保存单条消息
+export async function saveAIMessage(conversationId: number, role: "user" | "assistant", content: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database connection failed");
+  return await db.insert(aiMessages).values({
+    conversationId,
+    role,
+    content,
+  });
 }
 
 // ==================== 统计数据 ====================

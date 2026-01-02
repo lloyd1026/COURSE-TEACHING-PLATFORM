@@ -16,4 +16,9 @@ export const ENV = {
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   googleRedirectUri: process.env.GOOGLE_REDIRECT_URI ?? "",
+
+  // AI 内置 API 配置
+  aiModel: process.env.AI_MODEL ?? "deepseek-ai/DeepSeek-V3",
+  siliconflowApiKey: process.env.SILICONFLOW_API_KEY ?? "",
+  siliconflowApiBase: process.env.SILICONFLOW_API_BASE ?? "https://api.siliconflow.cn/v1",
 };

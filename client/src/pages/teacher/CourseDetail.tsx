@@ -1,324 +1,298 @@
-import { useState } from "react";
-import { useParams, Link } from "wouter";
+import { useMemo } from "react";
+import { useParams, Link, useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { 
-  ArrowLeft, BookOpen, Users, FileText, ClipboardList, 
-  Loader2, Edit3, Calendar, GraduationCap, LayoutDashboard,
-  Trash2, Plus, ExternalLink
+import {
+  ArrowLeft,
+  BookOpen,
+  Users,
+  FileText,
+  ClipboardList,
+  Loader2,
+  Edit3,
+  Calendar,
+  GraduationCap,
+  LayoutDashboard,
+  ExternalLink,
+  ChevronRight,
+  FileCheck,
 } from "lucide-react";
-import { toast } from "sonner";
 
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
   const courseId = parseInt(id || "0");
-  const utils = trpc.useUtils();
-  
+  const [, setLocation] = useLocation();
+
   // 1. 数据获取
   const { data: course, isLoading } = trpc.courses.get.useQuery({ id: courseId });
   const { data: assignments } = trpc.assignments.list.useQuery();
   const { data: exams } = trpc.exams.list.useQuery();
-  // 获取已关联的班级数据
   const { data: linkedClasses, isLoading: classesLoading } = trpc.courses.getLinkedClasses.useQuery({ courseId });
 
-  // 2. 解除关联 Mutation (可选)
-  const unlinkMutation = trpc.courses.unlinkClass.useMutation({
-    onSuccess: () => {
-      toast.success("已解除班级关联");
-      utils.courses.getLinkedClasses.invalidate({ courseId });
-    }
-  });
+  // 2. 数据过滤
+  const courseAssignments = useMemo(
+    () => assignments?.filter((a: any) => a.courseId === courseId) || [],
+    [assignments, courseId]
+  );
+  const courseExams = useMemo(
+    () => exams?.filter((e: any) => e.courseId === courseId) || [],
+    [exams, courseId]
+  );
 
-  // 数据过滤与统计
-  const courseAssignments = assignments?.filter((a: any) => a.courseId === courseId) || [];
-  const courseExams = exams?.filter((e: any) => e.courseId === courseId) || [];
+  if (isLoading) return (
+    <div className="h-screen flex items-center justify-center bg-white/50 backdrop-blur-md">
+      <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+    </div>
+  );
 
-  if (isLoading) {
-    return (
-      <DashboardLayout>
-        <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-slate-400 animate-pulse font-medium">正在调取课程档案...</p>
+  if (!course) return (
+    <DashboardLayout>
+      <div className="h-full flex flex-col items-center justify-center py-32 text-center">
+        <div className="h-24 w-24 bg-zinc-50 rounded-[2.5rem] flex items-center justify-center mb-8 shadow-inner">
+          <BookOpen className="h-10 w-10 text-zinc-200" />
         </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (!course) {
-    return (
-      <DashboardLayout>
-        <div className="text-center py-20">
-          <div className="bg-slate-50 inline-flex p-6 rounded-full mb-4">
-            <BookOpen className="h-12 w-12 text-slate-300" />
-          </div>
-          <p className="text-xl font-bold text-slate-900">该课程档案不存在</p>
-          <Link href="/teacher/courses">
-            <Button variant="link" className="mt-2 text-primary">返回课程中心</Button>
-          </Link>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, string> = {
-      active: "bg-emerald-50 text-emerald-600 border-emerald-100 shadow-sm",
-      archived: "bg-slate-100 text-slate-600 border-slate-200",
-      draft: "bg-amber-50 text-amber-600 border-amber-100"
-    };
-    const labels: Record<string, string> = {
-      active: "授课中",
-      archived: "已归档",
-      draft: "草案"
-    };
-    return (
-      <Badge variant="outline" className={`px-3 py-1 rounded-full font-bold ${styles[status] || styles.draft}`}>
-        {labels[status] || "草案"}
-      </Badge>
-    );
-  };
+        <h2 className="text-2xl font-semibold text-zinc-900 tracking-tight">课程档案不存在</h2>
+        <Button variant="link" onClick={() => setLocation("/teacher/courses")} className="mt-4 text-zinc-400 font-medium">
+          返回课程中心
+        </Button>
+      </div>
+    </DashboardLayout>
+  );
 
   return (
     <DashboardLayout>
-      <div className="max-w-6xl mx-auto space-y-8 pb-10 animate-in fade-in duration-700">
-        {/* 顶部面包屑与标题区 */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="space-y-4">
-            <Link href="/teacher/courses">
-              <Button variant="ghost" size="sm" className="gap-2 text-slate-500 hover:text-primary pl-0">
-                <ArrowLeft className="h-4 w-4" /> 返回我的课程
-              </Button>
-            </Link>
-            <div className="flex flex-wrap items-center gap-4">
-              <h1 className="text-4xl font-black text-slate-900 tracking-tight">{course.name}</h1>
-              {getStatusBadge(course.status || 'draft')}
-            </div>
-            <div className="flex items-center gap-6 text-slate-500 font-medium">
-              <span className="flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-lg text-xs tracking-widest font-mono">
-                CODE: {course.code}
-              </span>
-              <span className="flex items-center gap-1 text-sm">
-                <Calendar className="h-4 w-4" /> {course.semester}
-              </span>
-              <span className="flex items-center gap-1 text-sm">
-                <GraduationCap className="h-4 w-4" /> {course.credits} 学分
-              </span>
+      {/* 玻璃背景装饰 */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-blue-50/20 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[5%] left-[-10%] w-[500px] h-[500px] bg-indigo-50/20 rounded-full blur-[100px]" />
+      </div>
+
+      <div className="relative h-[calc(100vh-4rem)] flex flex-col max-w-6xl mx-auto px-8 py-10 overflow-hidden">
+        
+        {/* 页头区 */}
+        <header className="flex-shrink-0 mb-12">
+          <button
+            onClick={() => setLocation("/teacher/courses")}
+            className="group flex items-center gap-2 text-zinc-400 hover:text-zinc-900 transition-all text-[11px] font-bold uppercase tracking-[0.2em] mb-8"
+          >
+            <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-1" />
+            Back to Course Hub
+          </button>
+
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
+            <div className="space-y-5">
+              <div className="flex items-center gap-5">
+                <h1 className="text-4xl font-bold tracking-tight text-zinc-900">
+                  {course.name}
+                </h1>
+                <Badge variant="secondary" className="bg-emerald-50 text-emerald-600 border-none rounded-full px-4 py-1 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+                  {course.status === "active" ? "● 在读课程" : "○ 草稿中"}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap items-center gap-8 text-zinc-400">
+                <span className="flex items-center gap-2 bg-white/80 px-4 py-1.5 rounded-2xl text-[11px] font-mono font-bold tracking-tighter border border-white/60 shadow-sm text-zinc-500">
+                  REF: {course.code}
+                </span>
+                <span className="flex items-center gap-2 text-[13px] font-medium text-zinc-500">
+                  <Calendar className="h-4 w-4 text-zinc-300" /> {course.semester}
+                </span>
+                <span className="flex items-center gap-2 text-[13px] font-medium text-zinc-500">
+                  <GraduationCap className="h-4 w-4 text-zinc-300" /> {course.credits} Credits
+                </span>
+              </div>
             </div>
           </div>
-          <Link href={`/teacher/courses/${courseId}/edit`}>
-            <Button className="h-12 px-8 rounded-2xl gap-2 shadow-lg shadow-primary/20">
-              <Edit3 className="h-4 w-4" /> 编辑课程信息
-            </Button>
-          </Link>
-        </div>
+        </header>
 
-        {/* 数据概览卡片 */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+        {/* 核心统计卡片 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 flex-shrink-0">
           {[
-            { icon: Users, label: "授课班级", value: linkedClasses?.length || 0, color: "text-indigo-600", bg: "bg-indigo-50" },
-            { icon: FileText, label: "已发布作业", value: courseAssignments.length, color: "text-blue-600", bg: "bg-blue-50" },
-            { icon: ClipboardList, label: "安排考试", value: courseExams.length, color: "text-orange-600", bg: "bg-orange-50" }
+            { icon: Users, label: "已关联班级", value: linkedClasses?.length || 0, color: "text-blue-500", bg: "bg-blue-50/50" },
+            { icon: FileCheck, label: "作业任务", value: courseAssignments.length, color: "text-emerald-500", bg: "bg-emerald-50/50" },
+            { icon: ClipboardList, label: "发布考试", value: courseExams.length, color: "text-rose-500", bg: "bg-rose-50/50" },
           ].map((stat, i) => (
-            <Card key={i} className="border-none shadow-sm bg-white/50 backdrop-blur-sm group hover:shadow-md transition-all">
-              <CardContent className="pt-6 flex items-center gap-5">
-                <div className={`p-4 rounded-2xl ${stat.bg} ${stat.color} group-hover:scale-110 transition-transform`}>
-                  <stat.icon className="h-7 w-7" />
-                </div>
-                <div>
-                  <p className="text-3xl font-black text-slate-900">{stat.value}</p>
-                  <p className="text-sm font-semibold text-slate-400 uppercase tracking-wider">{stat.label}</p>
-                </div>
-              </CardContent>
-            </Card>
+            <div key={i} className="p-7 bg-white/40 backdrop-blur-xl border border-white/60 rounded-[2.25rem] shadow-sm flex items-center gap-6 group hover:bg-white transition-all">
+              <div className={`p-4.5 rounded-2xl ${stat.bg} ${stat.color} transition-transform group-hover:scale-110`}>
+                <stat.icon className="h-6.5 w-6.5" />
+              </div>
+              <div>
+                <p className="text-3xl font-bold text-zinc-900 leading-none tracking-tight">{stat.value}</p>
+                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-2">{stat.label}</p>
+              </div>
+            </div>
           ))}
         </div>
 
-        {/* 核心内容区：Tabs 切换 */}
-        <Tabs defaultValue="outline" className="w-full">
-          <TabsList className="bg-slate-100/50 p-1 rounded-2xl mb-6">
-            <TabsTrigger value="outline" className="rounded-xl px-8 data-[state=active]:shadow-sm">课程大纲</TabsTrigger>
-            <TabsTrigger value="classes" className="rounded-xl px-8 data-[state=active]:shadow-sm">授课班级</TabsTrigger>
-            <TabsTrigger value="assignments" className="rounded-xl px-8 data-[state=active]:shadow-sm">作业记录</TabsTrigger>
-            <TabsTrigger value="exams" className="rounded-xl px-8 data-[state=active]:shadow-sm">考试记录</TabsTrigger>
+        {/* Tabs 内容切换区 */}
+        <Tabs defaultValue="outline" className="flex-1 flex flex-col overflow-hidden">
+          <TabsList className="flex-shrink-0 bg-white/40 backdrop-blur-xl p-1.5 rounded-[1.25rem] border border-white/60 self-start mb-8 shadow-sm">
+            <TabsTrigger value="outline" className="rounded-xl px-10 py-2.5 text-[12px] font-semibold data-[state=active]:bg-zinc-900 data-[state=active]:text-white transition-all">
+              课程大纲
+            </TabsTrigger>
+            <TabsTrigger value="classes" className="rounded-xl px-10 py-2.5 text-[12px] font-semibold data-[state=active]:bg-zinc-900 data-[state=active]:text-white transition-all">
+              关联班级
+            </TabsTrigger>
+            <TabsTrigger value="assignments" className="rounded-xl px-10 py-2.5 text-[12px] font-semibold data-[state=active]:bg-zinc-900 data-[state=active]:text-white transition-all">
+              作业任务
+            </TabsTrigger>
           </TabsList>
 
-          {/* 课程大纲 */}
-          <TabsContent value="outline">
-            <Card className="border-none shadow-xl shadow-slate-200/40 rounded-[2.5rem]">
-              <CardHeader className="border-b border-slate-50 px-8 py-8">
-                <CardTitle className="flex items-center gap-2 text-xl font-bold text-slate-800">
-                  <LayoutDashboard className="h-5 w-5 text-primary" /> 教学详细介绍
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-10 py-10">
-                <div className="prose prose-slate max-w-none prose-headings:font-black prose-headings:tracking-tight prose-p:leading-relaxed prose-li:my-1">
+          <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar pb-20">
+            {/* 课程大纲：高质量 TipTap 渲染 */}
+            <TabsContent value="outline" className="mt-0 focus-visible:outline-none">
+              <div className="bg-white/40 backdrop-blur-2xl border border-white/70 rounded-[2.5rem] p-12 shadow-sm min-h-[500px]">
+                <div className="flex justify-between items-center mb-12 border-b border-zinc-200/50 pb-8">
+                  <div className="flex items-center gap-4">
+                    <div className="h-10 w-10 rounded-2xl bg-zinc-900 flex items-center justify-center text-white shadow-xl">
+                      <LayoutDashboard className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-zinc-900 tracking-tight">教学详细说明</h3>
+                      <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Syllabus Details</p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] border-zinc-200 text-zinc-400 rounded-full px-4 py-1 bg-white/50 font-bold uppercase tracking-tighter">
+                    Read-Only Mode
+                  </Badge>
+                </div>
+
+                <article className="prose prose-zinc max-w-none">
                   {course.description ? (
-                    <div 
-                      dangerouslySetInnerHTML={{ __html: course.description }} 
-                      className="course-rich-text"
+                    <div
+                      className="editor-content-view animate-in fade-in slide-in-from-bottom-4 duration-1000"
+                      dangerouslySetInnerHTML={{ __html: course.description }}
                     />
                   ) : (
-                    <div className="flex flex-col items-center py-12 text-slate-400 italic">
-                      <p>暂无详细介绍，请点击右上方按钮编辑</p>
+                    <div className="flex flex-col items-center justify-center py-32 opacity-20">
+                      <BookOpen className="h-16 w-16 mb-6 stroke-[1px]" />
+                      <p className="text-[11px] font-black uppercase tracking-[0.3em]">暂无详细教学内容</p>
+                    </div>
+                  )}
+                </article>
+              </div>
+            </TabsContent>
+
+            {/* 关联班级视图 */}
+            <TabsContent value="classes" className="mt-0">
+              <div className="bg-white/40 backdrop-blur-xl border border-white/60 rounded-[2.5rem] p-10 shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+                  <div className="space-y-1.5">
+                    <h3 className="text-[16px] font-bold text-zinc-900">当前授课班级</h3>
+                    <p className="text-[11px] text-zinc-400 font-medium">只有关联班级内的学生才有权访问此课程资源</p>
+                  </div>
+                  <Link href="/teacher/classes">
+                    <Button variant="outline" className="rounded-full border-zinc-200 text-[11px] font-bold hover:bg-white px-6 h-10 shadow-sm transition-all active:scale-95">
+                      管理关联班级 <ExternalLink className="ml-2 h-3.5 w-3.5" />
+                    </Button>
+                  </Link>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  {linkedClasses && linkedClasses.length > 0 ? (
+                    linkedClasses.map((cls: any) => (
+                      <div key={cls.id} className="group p-6 bg-white/60 border border-white rounded-[2rem] flex items-center justify-between hover:bg-white hover:shadow-lg hover:scale-[1.01] transition-all">
+                        <div className="flex items-center gap-5">
+                          <div className="h-12 w-12 bg-zinc-50 rounded-2xl flex items-center justify-center text-zinc-400 group-hover:bg-zinc-900 group-hover:text-white transition-all shadow-inner">
+                            <Users className="h-6 w-6" />
+                          </div>
+                          <div>
+                            <p className="text-[15px] font-bold text-zinc-800 tracking-tight">{cls.name}</p>
+                            <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-black mt-1">{cls.major} · {cls.grade}级</p>
+                          </div>
+                        </div>
+                        <Link href={`/teacher/classes/${cls.id}`}>
+                          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full hover:bg-zinc-100 text-zinc-300 hover:text-zinc-900 transition-colors">
+                            <ChevronRight className="h-5 w-5" />
+                          </Button>
+                        </Link>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-2 py-20 text-center text-zinc-300 text-[11px] uppercase tracking-[0.2em] font-black">
+                      目前没有关联任何行政班级
                     </div>
                   )}
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </div>
+            </TabsContent>
 
-          {/* 授课班级 - 新增内容 */}
-          <TabsContent value="classes">
-            <Card className="border-none shadow-lg rounded-[2.5rem]">
-              <CardHeader className="px-8 pt-8 flex justify-between items-center">
-                <div>
-                  <CardTitle className="text-xl">当前授课班级</CardTitle>
-                  <CardDescription>关联后的班级学生将自动同步至此课程</CardDescription>
-                </div>
-                {/* 这里的跳转建议去课程编辑页或者弹窗关联 */}
-                <Link href={`/teacher/courses/${courseId}/edit?tab=classes`}>
-                  <Button variant="outline" size="sm" className="rounded-xl gap-2">
-                    <Plus className="h-4 w-4" /> 管理关联
-                  </Button>
-                </Link>
-              </CardHeader>
-              <CardContent className="px-8 pb-8">
-                {classesLoading ? (
-                  <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-200" /></div>
-                ) : linkedClasses && linkedClasses.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {linkedClasses.map((cls: any) => (
-                      <div key={cls.id} className="group p-5 bg-slate-50 rounded-2xl flex items-center justify-between border border-transparent hover:border-slate-200 transition-all">
-                        <div className="flex items-center gap-4">
-                          <div className="bg-white p-3 rounded-xl shadow-sm text-indigo-500">
-                            <Users className="h-5 w-5" />
+            {/* 作业记录视图 */}
+            <TabsContent value="assignments" className="mt-0">
+              <div className="bg-white/40 backdrop-blur-xl border border-white/60 rounded-[2.5rem] p-10 shadow-sm">
+                <h3 className="text-[16px] font-bold text-zinc-900 mb-10">发布的作业任务</h3>
+                <div className="space-y-4">
+                  {courseAssignments.length > 0 ? (
+                    courseAssignments.map((a: any) => (
+                      <div key={a.id} className="flex items-center justify-between p-6 bg-white/60 border border-white rounded-[2rem] hover:bg-white hover:shadow-lg transition-all">
+                        <div className="flex items-center gap-5">
+                          <div className="h-12 w-12 bg-zinc-50 rounded-2xl flex items-center justify-center text-zinc-400 transition-colors group-hover:text-zinc-900 shadow-inner">
+                            <FileCheck className="h-6 w-6" />
                           </div>
                           <div>
-                            <p className="font-bold text-slate-800">{cls.name}</p>
-                            <p className="text-xs text-slate-400 font-medium">
-                              {cls.major} · {cls.grade}级 · {cls.studentCount || 0} 人
+                            <p className="text-[15px] font-bold text-zinc-800 tracking-tight">{a.title}</p>
+                            <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-black mt-1">
+                              Due: {new Date(a.dueDate).toLocaleDateString()}
                             </p>
                           </div>
                         </div>
-                        <div className="flex gap-2">
-                          <Link href={`/teacher/classes/${cls.id}`}>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-primary">
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          </Link>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-slate-400 hover:text-red-500"
-                            onClick={() => {
-                              if(confirm(`确定解除与【${cls.name}】的关联吗？`)) {
-                                unlinkMutation.mutate({ courseId, classId: cls.id });
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
+                        <Link href={`/teacher/assignments/${a.id}`}>
+                          <Button className="rounded-full bg-zinc-900 text-white h-10 px-6 text-[12px] font-bold hover:scale-105 active:scale-95 shadow-lg transition-all">
+                            进入批改
                           </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-16 bg-slate-50 rounded-[2rem]">
-                    <Users className="h-16 w-16 mx-auto mb-4 text-slate-200" />
-                    <p className="text-slate-400 font-medium">暂无关联的行政班级</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* 作业列表 */}
-          <TabsContent value="assignments">
-            {/* 原有内容... */}
-            <Card className="border-none shadow-lg rounded-[2.5rem]">
-              <CardHeader className="px-8 pt-8">
-                <CardTitle className="text-xl">历史作业记录</CardTitle>
-                <CardDescription>管理该课程下发布的所有作业任务</CardDescription>
-              </CardHeader>
-              <CardContent className="px-8 pb-8">
-                {courseAssignments.length > 0 ? (
-                  <div className="grid gap-4">
-                    {courseAssignments.map((assignment: any) => (
-                      <div key={assignment.id} className="flex items-center justify-between p-5 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
-                        <div className="flex items-center gap-4">
-                          <div className="bg-white p-3 rounded-xl shadow-sm text-blue-500"><FileText className="h-5 w-5" /></div>
-                          <div>
-                            <p className="font-bold text-slate-800">{assignment.title}</p>
-                            <p className="text-xs text-slate-400 font-medium">截止时间: {new Date(assignment.dueDate).toLocaleString()}</p>
-                          </div>
-                        </div>
-                        <Link href={`/teacher/assignments/${assignment.id}`}>
-                          <Button variant="outline" size="sm" className="rounded-xl font-bold">批改作业</Button>
                         </Link>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-16 bg-slate-50 rounded-[2rem]">
-                    <FileText className="h-16 w-16 mx-auto mb-4 text-slate-200" />
-                    <p className="text-slate-400 font-medium">暂无发布的作业</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* 考试记录 */}
-          <TabsContent value="exams">
-            {/* 原有内容... */}
-            <Card className="border-none shadow-lg rounded-[2.5rem]">
-              <CardHeader className="px-8 pt-8">
-                <CardTitle className="text-xl">课程考试安排</CardTitle>
-                <CardDescription>查看历史及待进行的考试</CardDescription>
-              </CardHeader>
-              <CardContent className="px-8 pb-8">
-                {courseExams.length > 0 ? (
-                  <div className="grid gap-4">
-                    {courseExams.map((exam: any) => (
-                      <div key={exam.id} className="flex items-center justify-between p-5 bg-orange-50/30 rounded-2xl border border-orange-100">
-                        <div className="flex items-center gap-4">
-                          <div className="bg-white p-3 rounded-xl shadow-sm text-orange-500"><ClipboardList className="h-5 w-5" /></div>
-                          <div>
-                            <p className="font-bold text-slate-800">{exam.title}</p>
-                            <p className="text-xs text-slate-400 font-medium tracking-tight">
-                              开始时间: {new Date(exam.startTime).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                        <Link href={`/teacher/exams/${exam.id}`}>
-                          <Button variant="ghost" size="sm" className="rounded-xl font-bold text-orange-600 hover:bg-orange-100">结果分析</Button>
-                        </Link>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-16 bg-slate-50 rounded-[2rem]">
-                    <ClipboardList className="h-16 w-16 mx-auto mb-4 text-slate-200" />
-                    <p className="text-slate-400 font-medium">暂无考试安排</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+                    ))
+                  ) : (
+                    <div className="py-20 text-center text-zinc-300 text-[11px] uppercase tracking-[0.2em] font-black">
+                      暂无发布的作业任务
+                    </div>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+          </div>
         </Tabs>
       </div>
 
       <style>{`
-        .course-rich-text h1 { font-size: 2.25rem !important; line-height: 2.5rem !important; margin-top: 2rem !important; margin-bottom: 1.5rem !important; }
-        .course-rich-text h2 { font-size: 1.875rem !important; line-height: 2.25rem !important; margin-top: 1.5rem !important; margin-bottom: 1rem !important; }
-        .course-rich-text p { margin-bottom: 1.25rem !important; font-size: 1.125rem !important; color: #475569 !important; }
-        .course-rich-text ul, .course-rich-text ol { margin-left: 2rem !important; margin-bottom: 1.5rem !important; }
-        .course-rich-text ul { list-style-type: disc !important; }
-        .course-rich-text blockquote { background: #f8fafc; border-left: 5px solid #cbd5e1; padding: 1.5rem; border-radius: 0.5rem; margin: 2rem 0; font-style: italic; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.06); border-radius: 10px; }
+        
+        /* TipTap 渲染美化逻辑 */
+        .editor-content-view { line-height: 1.8; color: #3f3f46; font-size: 15px; }
+        .editor-content-view h1 { font-size: 2.25em; font-weight: 800; margin-top: 1.5em; margin-bottom: 0.8em; color: #18181b; letter-spacing: -0.03em; }
+        .editor-content-view h2 { font-size: 1.65em; font-weight: 700; margin-top: 1.4em; margin-bottom: 0.6em; color: #27272a; border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 0.3em; }
+        .editor-content-view h3 { font-size: 1.35em; font-weight: 700; margin-top: 1.2em; color: #3f3f46; }
+        .editor-content-view p { margin-bottom: 1.25em; }
+
+        /* 任务列表 (TaskList) 专门样式 */
+        .editor-content-view ul[data-type="taskList"] { list-style: none; padding: 0; margin-top: 1.5em; }
+        .editor-content-view ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.6rem; }
+        .editor-content-view ul[data-type="taskList"] input[type="checkbox"] { 
+          appearance: none; width: 18px; height: 18px; border: 2.5px solid #e4e4e7; border-radius: 6px; 
+          margin-top: 5px; cursor: default; position: relative; background: white; transition: all 0.2s;
+        }
+        .editor-content-view ul[data-type="taskList"] input[type="checkbox"]:checked { background-color: #18181b; border-color: #18181b; }
+        .editor-content-view ul[data-type="taskList"] input[type="checkbox"]:checked::after {
+          content: "✓"; position: absolute; color: white; font-size: 11px; font-weight: 900; left: 2.5px; top: -1.5px;
+        }
+
+        /* 引用块美化 */
+        .editor-content-view blockquote {
+          border-left: 4px solid #18181b; background: rgba(0,0,0,0.02); padding: 1.5rem 2.5rem; 
+          border-radius: 0 1.5rem 1.5rem 0; margin: 2.5rem 0; font-style: italic; color: #52525b; font-size: 1.1em;
+        }
+
+        /* 列表 */
+        .editor-content-view ul:not([data-type="taskList"]) { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1.5rem; }
+        .editor-content-view ol { list-style-type: decimal; padding-left: 1.5rem; margin-bottom: 1.5rem; }
+        
+        /* 代码显示 */
+        .editor-content-view code { background: #f4f4f5; padding: 0.25em 0.5em; border-radius: 8px; font-size: 0.85em; color: #be185d; font-family: ui-monospace, monospace; }
+        .editor-content-view pre { background: #18181b; color: #f4f4f5; padding: 1.5rem; border-radius: 1.5rem; overflow-x: auto; margin: 2rem 0; font-size: 0.9em; line-height: 1.6; }
       `}</style>
     </DashboardLayout>
   );

@@ -33,6 +33,7 @@ import StudentExamTaking from "./pages/student/ExamTaking";
 import AIAssistant from "./pages/student/AIAssistant";
 import StudentExperimentList from "./pages/student/ExperimentList";
 import Profile from "./pages/Profile";
+import StudentCourseDetail from "./pages/student/StudentCourseDetail";
 
 function Router() {
   return (
@@ -64,6 +65,7 @@ function Router() {
       {/* Student Routes */}
       <Route path="/student/dashboard" component={StudentDashboard} />
       <Route path="/student/courses" component={StudentCourseList} />
+      <Route path="/student/courses/:id" component={StudentCourseDetail} />
       <Route path="/student/assignments" component={StudentAssignmentList} />
       <Route
         path="/student/assignments/:id"

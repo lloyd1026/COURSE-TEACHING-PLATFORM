@@ -1,111 +1,156 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
-import { Search, FileText, Loader2 } from "lucide-react";
+import { 
+  FileText, Loader2, ChevronRight, 
+  Clock, CalendarDays, Inbox, AlertCircle
+} from "lucide-react";
+
+// 严格使用你的组件定义
+import { FilterSearch, FilterTabs } from "@/components/common/FilterGroup";
+import { Pagination } from "@/components/common/Pagination";
 
 export default function StudentAssignmentList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 6;
 
   const { data: assignments, isLoading } = trpc.assignments.list.useQuery();
 
-  const getStatusBadge = (status: string, dueDate: Date) => {
+  // 状态解析
+  const getAssignmentStatus = (dueDate: string) => {
     const now = new Date();
     const due = new Date(dueDate);
-    if (status === 'submitted') {
-      return <Badge className="bg-green-100 text-green-800">已提交</Badge>;
-    }
-    if (due < now) {
-      return <Badge variant="destructive">已截止</Badge>;
-    }
-    return <Badge variant="outline">待提交</Badge>;
+    return { isOverdue: due < now, due };
   };
 
-  const filteredAssignments = assignments?.filter((a: any) => {
-    const matchSearch = a.title.toLowerCase().includes(search.toLowerCase());
-    return matchSearch;
-  });
+  const filteredAssignments = useMemo(() => {
+    return (assignments || []).filter((a: any) => {
+      const matchSearch = a.title.toLowerCase().includes(search.toLowerCase());
+      // 后续可结合 submission 状态进行 statusFilter 过滤
+      return matchSearch;
+    });
+  }, [assignments, search]);
+
+  const pagedAssignments = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredAssignments.slice(start, start + pageSize);
+  }, [filteredAssignments, currentPage]);
+
+  if (isLoading) return (
+    <div className="h-screen flex items-center justify-center">
+      <Loader2 className="h-5 w-5 animate-spin text-zinc-300" />
+    </div>
+  );
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">我的作业</h1>
-          <p className="text-muted-foreground">查看和提交课程作业</p>
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-5%] left-[-5%] w-[500px] h-[500px] bg-blue-50/20 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[10%] right-[-5%] w-[400px] h-[400px] bg-indigo-50/20 rounded-full blur-[100px]" />
+      </div>
+
+      <div className="relative h-[calc(100vh-4rem)] flex flex-col max-w-6xl mx-auto px-6 py-8 overflow-hidden">
+        
+        <header className="flex-shrink-0 flex justify-between items-end mb-10">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">任务中心</h1>
+            <p className="text-zinc-400 text-[11px] mt-1 tracking-widest uppercase font-bold">Assignments & Tasks</p>
+          </div>
+          <div className="hidden md:flex items-center gap-2 bg-white/40 backdrop-blur-md px-4 py-1.5 rounded-2xl border border-white/60 shadow-sm">
+            <Inbox className="h-3.5 w-3.5 text-zinc-400" />
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-tighter">
+              {filteredAssignments.length} 个任务
+            </span>
+          </div>
+        </header>
+
+        {/* 适配你的组件定义 */}
+        <div className="flex-shrink-0 flex flex-wrap items-center gap-4 mb-8">
+          <FilterSearch 
+            value={search} 
+            onChange={setSearch} 
+            placeholder="搜索作业标题..." 
+          />
+          <FilterTabs 
+            options={[
+              { label: "全部任务", value: "all" },
+              { label: "进行中", value: "pending" },
+              { label: "已提交", value: "submitted" },
+            ]}
+            value={statusFilter}
+            onChange={setStatusFilter}
+          />
         </div>
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex gap-4 mb-6">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="搜索作业..."
-                  className="pl-10"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="状态" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部状态</SelectItem>
-                  <SelectItem value="pending">待提交</SelectItem>
-                  <SelectItem value="submitted">已提交</SelectItem>
-                  <SelectItem value="graded">已批改</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+        <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
+          {pagedAssignments.length > 0 ? (
+            <div className="grid gap-6 grid-cols-1 lg:grid-cols-2 pb-10">
+              {pagedAssignments.map((a: any) => {
+                const { isOverdue, due } = getAssignmentStatus(a.dueDate);
+                return (
+                  <div key={a.id} className="group relative bg-white/40 backdrop-blur-xl border border-white/80 rounded-[2.5rem] p-8 shadow-sm hover:shadow-xl hover:bg-white/80 transition-all duration-300 flex flex-col sm:flex-row gap-6">
+                    <div className={`h-16 w-16 flex-shrink-0 rounded-[1.5rem] flex items-center justify-center transition-all ${
+                      isOverdue ? 'bg-rose-50 text-rose-500' : 'bg-zinc-50 text-zinc-400 group-hover:bg-zinc-900 group-hover:text-white'
+                    }`}>
+                      <FileText className="h-8 w-8" />
+                    </div>
 
-            {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <div className="flex-1 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-[17px] font-semibold text-zinc-900 leading-tight">{a.title}</h3>
+                        {isOverdue && (
+                          <Badge className="bg-rose-50 text-rose-500 border-none text-[9px] font-bold uppercase px-2 rounded-full">EXPIRED</Badge>
+                        )}
+                      </div>
+                      
+                      <div className="flex items-center gap-4 text-zinc-400">
+                        <div className="flex items-center gap-1.5 text-[12px] font-medium text-zinc-500">
+                          <CalendarDays className="h-3.5 w-3.5 text-zinc-300" /> {a.courseName || '课程作业'}
+                        </div>
+                        <div className={`flex items-center gap-1.5 text-[12px] font-medium ${isOverdue ? 'text-rose-400' : 'text-zinc-500'}`}>
+                          <Clock className="h-3.5 w-3.5 text-zinc-300" /> {due.toLocaleDateString()} 截止
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center">
+                      <Link href={`/student/assignments/${a.id}`}>
+                        <Button className="rounded-full bg-zinc-900 text-white h-11 px-8 text-[13px] font-medium shadow-lg hover:scale-105 active:scale-95 transition-all group/btn">
+                          查看详情
+                          <ChevronRight className="ml-1 h-4 w-4 transition-transform group-hover/btn:translate-x-1" />
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-24 text-center">
+              <div className="h-20 w-20 bg-white/40 backdrop-blur-md rounded-full flex items-center justify-center mx-auto mb-6 border border-white/60">
+                <AlertCircle className="h-8 w-8 text-zinc-200" />
               </div>
-            ) : filteredAssignments && filteredAssignments.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>作业名称</TableHead>
-                    <TableHead>截止时间</TableHead>
-                    <TableHead>总分</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredAssignments.map((assignment: any) => (
-                    <TableRow key={assignment.id}>
-                      <TableCell className="font-medium">{assignment.title}</TableCell>
-                      <TableCell>{new Date(assignment.dueDate).toLocaleString()}</TableCell>
-                      <TableCell>{assignment.totalScore}分</TableCell>
-                      <TableCell>{getStatusBadge(assignment.status || 'pending', assignment.dueDate)}</TableCell>
-                      <TableCell>
-                        <Link href={`/student/assignments/${assignment.id}`}>
-                          <Button variant="ghost" size="sm">查看</Button>
-                        </Link>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <div className="text-center py-12">
-                <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <p className="text-muted-foreground">暂无作业</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              <p className="text-[11px] text-zinc-300 tracking-widest uppercase font-bold">没有找到相关作业任务</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-none mt-4">
+          <Pagination 
+            currentPage={currentPage}
+            totalItems={filteredAssignments.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+          />
+        </div>
       </div>
+
+      <style>{`.custom-scrollbar::-webkit-scrollbar { width: 3px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 10px; }`}</style>
     </DashboardLayout>
   );
 }

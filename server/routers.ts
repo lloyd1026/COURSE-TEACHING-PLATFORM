@@ -19,6 +19,7 @@ import { ENV } from "./_core/env";
 export const appRouter = router({
   system: systemRouter,
 
+  // ==================== 认证相关 ====================
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
 
@@ -165,10 +166,22 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ search: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
+        // 1. 管理员：看全部
         if (ctx.user.role === "admin") {
           return await db.getAllCourses(input?.search);
         }
-        return await db.getCoursesByTeacherId(ctx.user.id, input?.search);
+
+        // 2. 教师：看自己教的课
+        if (ctx.user.role === "teacher") {
+          return await db.getCoursesByTeacherId(ctx.user.id, input?.search);
+        }
+
+        // 3. 学生：看自己班级的课
+        if (ctx.user.role === "student") {
+          return await db.getCoursesByStudentId(ctx.user.id, input?.search);
+        }
+
+        return [];
       }),
 
     get: protectedProcedure
@@ -354,17 +367,23 @@ export const appRouter = router({
   assignments: router({
     // 获取作业列表, teacher查看自己创建的作业，学生查看自己班级的作业
     list: protectedProcedure
-      .input(
-      z.object({ 
-        courseId: z.number().optional(),
-        teacherId: z.number().optional() 
-      }).optional()
-    )
-    .query(async ({ input }) => {
-      // 直接解构透传，逻辑完全由 db 层处理
-      return await db.getAllAssignments(input?.teacherId, input?.courseId);
+    .input(z.object({
+      courseId: z.number().optional(),
+      teacherId: z.number().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      // 1. 如果是学生，直接调用连表查询
+      if (ctx.user.role === "student") {
+        return await db.getAssignmentsByStudentId(ctx.user.id, input?.courseId);
+      }
+
+      // 2. 如果是教师/管理员，调用你之前的老方法
+      return await db.getAllAssignments(
+        input?.teacherId, 
+        input?.courseId
+      );
     }),
-    
+
     // 获取作业详情
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -588,36 +607,66 @@ export const appRouter = router({
 
   // ==================== AI助教 ====================
   ai: router({
-    chat: protectedProcedure
-      .input(
-        z.object({
-          message: z.string(),
-          conversationId: z.string().optional(),
-        })
-      )
-      .mutation(async ({ input }) => {
-        const response = await invokeLLM({
-          messages: [
-            {
-              role: "system",
-              content:
-                "你是一个专业的教学助手,帮助学生理解课程内容和解答问题。请用简洁清晰的语言回答。",
-            },
-            {
-              role: "user",
-              content: input.message,
-            },
-          ],
+    // 1. 获取会话列表
+  listConversations: protectedProcedure.query(async ({ ctx }) => {
+    return await db.getAIConversationsByStudent(ctx.user.id);
+  }),
+
+  // 2. 获取特定会话的消息详情
+  getMessages: protectedProcedure
+    .input(z.object({ conversationId: z.number() }))
+    .query(async ({ input }) => {
+      return await db.getAIMessagesByConversation(input.conversationId);
+    }),
+
+  // 3. 智能对话接口 (增强持久化逻辑)
+  chat: protectedProcedure
+    .input(
+      z.object({
+        message: z.string(),
+        conversationId: z.number().optional(),
+        assignmentId: z.number().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      let currentId = input.conversationId;
+
+      // 如果没有会话ID，则视为新开启的对话，创建会话记录
+      if (!currentId) {
+        const [newConv] = await db.createAIConversation({
+          studentId: ctx.user.id,
+          assignmentId: input.assignmentId,
+          title: input.message.slice(0, 30), // 取首句前30字作为标题
         });
+        currentId = newConv.id;
+      }
 
-        const reply =
-          response.choices[0]?.message?.content || "抱歉,我无法回答这个问题。";
+      // 获取历史上下文 (最近 10 条消息) 供 AI 参考
+      const history = await db.getAIMessagesByConversation(currentId, 10);
+      const contextMessages = history.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
 
-        return {
-          reply,
-          conversationId: input.conversationId || `conv-${Date.now()}`,
-        };
-      }),
+      // 调用适配了硅基流动的 invokeLLM
+      const response = await invokeLLM({
+        messages: [
+          ...contextMessages,
+          { role: "user", content: input.message },
+        ],
+      });
+
+      const reply = response.choices[0]?.message?.content || "抱歉，我目前无法处理这个请求。";
+
+      // 持久化：存入数据库
+      await db.saveAIMessage(currentId, "user", input.message);
+      await db.saveAIMessage(currentId, "assistant", reply);
+
+      return {
+        reply,
+        conversationId: currentId,
+      };
+    }),
   }),
 });
 
