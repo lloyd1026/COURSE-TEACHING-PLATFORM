@@ -4,9 +4,9 @@ import { getDb } from './server/db.ts';
 import {
     users, teachers, courses, classes, students,
     chapters, knowledgePoints, knowledgePointRelations,
-    assignments, assignmentSubmissions,
+    assignments, assignmentClasses, submissions as assignmentSubmissions,
     experiments, experimentSubmissions,
-    questions, exams, examQuestions, examAnswers
+    questions, exams, examQuestions
 } from './drizzle/schema.ts';
 import crypto from 'crypto';
 
@@ -22,7 +22,7 @@ async function seed() {
         // 1. Clean existing data
         console.log('Cleaning data...');
         const tables = [
-            examAnswers, examQuestions, exams,
+            examQuestions, exams,
             experimentSubmissions, experiments,
             assignmentSubmissions, assignments,
             knowledgePointRelations, questions,
@@ -224,9 +224,10 @@ async function seed() {
             const dueDate = new Date();
             dueDate.setDate(dueDate.getDate() + asm.dueDays);
             const [res] = await db.insert(assignments).values({
-                courseId, classId, title: asm.title, description: asm.desc, dueDate, createdBy: teacherId, status: 'published'
+                courseId, title: asm.title, description: asm.desc, dueDate, createdBy: teacherId, status: 'published'
             });
             const asmId = res.insertId;
+            await db.insert(assignmentClasses).values({ assignmentId: asmId, classId });
 
             for (const k of asm.kps) {
                 if (kpMap.has(k)) {
@@ -236,12 +237,12 @@ async function seed() {
 
             // Mock Submission
             await db.insert(assignmentSubmissions).values({
-                assignmentId: asmId,
+                sourceId: asmId,
+                sourceType: 'assignment',
                 studentId: student1Id,
-                content: 'Report content here...',
                 status: 'graded',
-                score: 90.00,
-                feedback: 'Excellent analysis.',
+                totalScore: '90.00',
+                globalFeedback: 'Excellent analysis.',
                 submittedAt: new Date(),
                 gradedBy: teacherId,
                 gradedAt: new Date()
