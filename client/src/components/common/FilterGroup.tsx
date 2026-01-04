@@ -1,29 +1,4 @@
 import { Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
-
-/**
- * 1. 搜索输入框 (FilterSearch)
- * 用于主标题搜索
- */
-export function FilterSearch({ value, onChange, placeholder = "搜索..." }: {
-  value: string;
-  onChange: (val: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-1 rounded-2xl shadow-sm flex-1 max-w-md">
-      <div className="relative group">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400 group-focus-within:text-zinc-900 transition-colors" />
-        <Input
-          placeholder={placeholder}
-          className="pl-10 h-9 rounded-xl border-none bg-transparent shadow-none text-[13px] focus-visible:ring-0"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </div>
-    </div>
-  );
-}
 
 /**
  * 2. 状态切换标签 (FilterTabs)

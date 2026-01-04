@@ -460,8 +460,8 @@ export const appRouter = router({
           case "admin":
             return await db.getQuestionsForAdmin(filters);
 
-          case "student":
-            return await db.getQuestionsByStudent(userId, filters.courseId);
+          // case "student":
+          //   return await db.getQuestionsByStudent(userId, filters.courseId);
 
           default:
             throw new Error("未知的用户角色");

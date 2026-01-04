@@ -20,10 +20,11 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
-// 1. 引入封装的通用组件
+// 引入通用组件
 import { ConfirmDeleteDialog } from "@/components/common/ConfirmDeleteDialog";
 import { Pagination } from "@/components/common/Pagination";
-import { FilterSearch, FilterTabs, FilterSlider } from "@/components/common/FilterGroup";
+import { FilterTabs, FilterSlider } from "@/components/common/FilterGroup";
+import { SearchFilterBar } from "@/components/common/SearchFilterBar"; // 1. 引入新组件
 
 export default function AssignmentList() {
   const [search, setSearch] = useState("");
@@ -57,10 +58,10 @@ export default function AssignmentList() {
     { enabled: typeof courseFilter === "number" }
   );
 
-  // 筛选逻辑整合
+  // 筛选逻辑 (search 现在确认后触发)
   const filteredAssignments = useMemo(() => {
     return (assignments || []).filter((a: any) => {
-      const matchSearch = a.title.toLowerCase().includes(search.toLowerCase());
+      const matchSearch = !search || a.title.toLowerCase().includes(search.toLowerCase());
       const matchStatus = statusFilter === "all" || a.status === statusFilter;
       const matchCourse = courseFilter === "all" || a.courseId === courseFilter;
       const matchClass = classFilter === "all" || a.classId === classFilter;
@@ -117,20 +118,18 @@ export default function AssignmentList() {
           </Button>
         </header>
 
-        {/* 2. 复合工具栏：使用 FilterGroup 家族组件 */}
-        <div className="flex-shrink-0 space-y-5 mb-8">
-          <div className="flex gap-3">
-            <FilterSearch 
-              value={search} 
-              onChange={setSearch} 
-              placeholder="搜索作业标题..." 
-            />
-            <FilterTabs 
-              value={statusFilter} 
-              onChange={setStatusFilter} 
-              options={Object.entries(STATUS_CONFIG).map(([key, cfg]: any) => ({ label: cfg.label, value: key }))} 
-            />
-          </div>
+        {/* 筛选区域：搜索框在上，标签在下 */}
+        <div className="flex-shrink-0 space-y-6 mb-8">
+          <SearchFilterBar 
+            onSearch={setSearch} 
+            placeholder="搜索作业标题..." 
+          />
+
+          <FilterTabs 
+            value={statusFilter} 
+            onChange={setStatusFilter} 
+            options={Object.entries(STATUS_CONFIG).map(([key, cfg]: any) => ({ label: cfg.label, value: key }))} 
+          />
 
           <FilterSlider
             label="课程"
@@ -185,7 +184,7 @@ export default function AssignmentList() {
                       </Button>
                     )}
                     <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-zinc-400 hover:text-zinc-900 hover:scale-110 active:scale-90 transition-all" onClick={() => { setSelectedAssignment(a); setIsEditOpen(true); }}><Edit3 className="h-3 w-3" /></Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-zinc-300 hover:text-red-500 hover:scale-110 active:scale-90 transition-all" onClick={() => { setSelectedAssignment(a); setIsDeleteAlertOpen(true); }}><Trash2 className="h-3 w-3" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-zinc-300 hover:text-red-500 hover:scale-110 active:scale-90 transition-all" onClick={() => { setSelectedAssignment(a); setIsDeleteAlertOpen(true); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                   </div>
                 </div>
               </div>
@@ -225,7 +224,7 @@ export default function AssignmentList() {
         description="此操作将同步删除所有学生的提交记录及批改数据，且不可恢复。"
       />
 
-      <style>{`.no-scrollbar::-webkit-scrollbar { display: none; } .custom-scrollbar::-webkit-scrollbar { width: 3px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 10px; }`}</style>
+      <style dangerouslySetInnerHTML={{ __html: `.no-scrollbar::-webkit-scrollbar { display: none; } .custom-scrollbar::-webkit-scrollbar { width: 3px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 10px; }` }} />
     </DashboardLayout>
   );
 }

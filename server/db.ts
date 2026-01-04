@@ -778,27 +778,27 @@ export async function getQuestionsForAdmin(filters: { courseId?: number; search?
 }
 
 // --- 学生视角：练习模式（仅限已选课程的题目） ---
-export async function getQuestionsByStudent(userId: number, courseId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("数据库连接失败");
+// export async function getQuestionsByStudent(userId: number, courseId?: number) {
+//   const db = await getDb();
+//   if (!db) throw new Error("数据库连接失败");
 
-  // 逻辑：通过 student 表找到学生所在的班级，再找到班级关联的课程
-  return await db
-    .select({
-      id: questions.id,
-      type: questions.type,
-      content: questions.content,
-      // 注意：学生端通常不返回 answer 和 analysis，除非是练习模式或已提交
-    })
-    .from(students)
-    .innerJoin(classes, eq(students.classId, classes.id))
-    // 此处假设有一个 course_classes 表记录班级和课程的关联
-    .innerJoin(questions, eq(questions.courseId, courseId)) 
-    .where(and(
-      eq(students.userId, userId),
-      courseId ? eq(questions.courseId, courseId) : undefined
-    ));
-}
+//   // 逻辑：通过 student 表找到学生所在的班级，再找到班级关联的课程
+//   return await db
+//     .select({
+//       id: questions.id,
+//       type: questions.type,
+//       content: questions.content,
+//       // 注意：学生端通常不返回 answer 和 analysis，除非是练习模式或已提交
+//     })
+//     .from(students)
+//     .innerJoin(classes, eq(students.classId, classes.id))
+//     // 此处假设有一个 course_classes 表记录班级和课程的关联
+//     .innerJoin(questions, eq(questions.courseId, courseId)) 
+//     .where(and(
+//       eq(students.userId, userId),
+//       courseId ? eq(questions.courseId, courseId) : undefined
+//     ));
+// }
 
 // 获取单条题目详情
 export async function getQuestionById(id: number) {
