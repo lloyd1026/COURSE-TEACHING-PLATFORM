@@ -711,22 +711,22 @@ export async function getQuestionsForAdmin(filters: {
 //   if (!db) throw new Error("数据库连接失败");
 
 // 逻辑：通过 student 表找到学生所在的班级，再找到班级关联的课程
-return await db
-  .select({
-    id: questions.id,
-    type: questions.type,
-    content: questions.content,
-    // 注意：学生端通常不返回 answer 和 analysis，除非是练习模式或已提交
-  })
-  .from(students)
-  .innerJoin(classes, eq(students.classId, classes.id))
-  // 此处假设有一个 course_classes 表记录班级和课程的关联
-  .innerJoin(questions, eq(questions.courseId, courseId))
-  .where(and(
-    eq(students.userId, userId),
-    courseId ? eq(questions.courseId, courseId) : undefined
-  ));
-}
+// return await db
+//   .select({
+//     id: questions.id,
+//     type: questions.type,
+//     content: questions.content,
+//     // 注意：学生端通常不返回 answer 和 analysis，除非是练习模式或已提交
+//   })
+//   .from(students)
+//   .innerJoin(classes, eq(students.classId, classes.id))
+//   // 此处假设有一个 course_classes 表记录班级和课程的关联
+//   .innerJoin(questions, eq(questions.courseId, courseId))
+//   .where(and(
+//     eq(students.userId, userId),
+//     courseId ? eq(questions.courseId, courseId) : undefined
+//   ));
+// }
 
 // 获取单条题目详情
 export async function getQuestionById(id: number) {
@@ -782,22 +782,12 @@ export async function deleteQuestionsBulk(ids: number[], teacherId: number) {
   await db.transaction(async (tx) => {
     for (const id of ids) {
       try {
-<<<<<<< HEAD
-        // 1. 检查引用情况
-        const [usage] = await tx.select({
-          examRefCount: sql<number>`(SELECT COUNT(*) FROM examQuestions WHERE questionId = ${id})`,
-          assignRefCount: sql<number>`(SELECT COUNT(*) FROM assignmentQuestions WHERE questionId = ${id})`
-        })
-          .from(questions)
-          .where(eq(questions.id, id));
-=======
         // 1. 检查引用情况 - 使用 Drizzle 语法避开表名大小写坑
         // 检查考试引用
         const examRefs = await tx
           .select({ count: sql<number>`count(*)` })
           .from(examQuestions) // 使用 Schema 变量而非字符串
           .where(eq(examQuestions.questionId, id));
->>>>>>> origin/lloyd
 
         // 检查作业引用
         const assignRefs = await tx
