@@ -30,6 +30,7 @@ import { submissionRouter } from "./routers/submissions";
 // 考试路由
 import { examRouter } from "./routers/exams";
 import { assignmentRouter } from "./routers/assignments";
+import { questionsRouter } from "./routers/questions";
 
 export const appRouter = router({
   system: systemRouter,
@@ -364,103 +365,7 @@ export const appRouter = router({
   assignments: assignmentRouter,
 
   // ==================== 题库管理 ====================
-  questions: router({
-    /**
-     * 列表查询：角色分流
-     * 教师端现在会额外返回 questionCount 和 totalScore
-     */
-    list: protectedProcedure
-      .input(
-        z
-          .object({
-            courseId: z.number().optional(),
-            search: z.string().optional(),
-          })
-          .optional()
-      ) // 让 input 可选
-      .query(async ({ ctx, input }) => {
-        return await db.getQuestionsByTeacher(ctx.user.id, {
-          courseId: input?.courseId,
-          search: input?.search,
-        });
-      }),
-
-    /**
-     * 详情获取：
-     * 返回值现在包含 classIds 数组和 questions 对象数组
-     */
-    get: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        const data = await getAssignmentById(input.id);
-        if (!data) throw new Error("该作业记录不存在");
-        return data;
-      }),
-
-    /**
-     * 核心保存接口：新增或更新
-     * 增加 selectedQuestions 校验
-     */
-    upsert: teacherProcedure
-      .input(
-        z.object({
-          id: z.number().optional(),
-          title: z.string().min(1, "题目简称不能为空"),
-          content: z.string().min(1, "题干正文不能为空"),
-          type: z.enum([
-            "single_choice",
-            "multiple_choice",
-            "fill_blank",
-            "true_false",
-            "essay",
-            "programming",
-          ]),
-          difficulty: z.enum(["easy", "medium", "hard"]),
-          answer: z.string().min(1, "正确答案不能为空"),
-          analysis: z.string().optional(),
-          courseId: z.number().min(1, "请选择所属课程"),
-          options: z.any().optional().nullable(), // 这里接收选项数组
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        return await db.upsertQuestion(ctx.user.id, input);
-      }),
-
-    /**
-     * 删除作业
-     */
-    delete: teacherProcedure
-      .input(
-        z.object({
-          ids: z.array(z.number()),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        // 这里的逻辑会去 DB 层执行引用检查
-        return await db.deleteQuestionsBulk(input.ids, ctx.user.id);
-      }),
-
-    // 批量导入题目
-    import: teacherProcedure
-      .input(
-        z.object({
-          questions: z.array(
-            z.object({
-              type: z.string(),
-              courseId: z.number(),
-              content: z.string(),
-              options: z.any().optional(),
-              answer: z.string(),
-              analysis: z.string().optional(),
-              difficulty: z.string().optional(),
-            })
-          ),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        return await db.importQuestionsBulk(ctx.user.id, input.questions);
-      }),
-  }),
+  questions: questionsRouter,
 
   // ==================== 考试管理 ====================
   exams: examRouter,
