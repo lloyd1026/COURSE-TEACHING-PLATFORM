@@ -200,6 +200,7 @@ export async function getCoursesByTeacher(
       status: courses.status,
       credits: courses.credits,
       semester: courses.semester,
+      description: courses.description,
       // 联查字段
       classId: classes.id,
       className: classes.name,
@@ -228,14 +229,10 @@ export async function getCoursesByTeacher(
 
   for (const row of rows) {
     if (!courseMap.has(row.id)) {
+      const { classId, className, ...courseData } = row;
       courseMap.set(row.id, {
-        id: row.id,
-        name: row.name,
-        code: row.code,
-        status: row.status,
-        credits: row.credits,
-        semester: row.semester,
-        linkedClasses: [], // 用于存放班级列表
+        ...courseData,
+        linkedClasses: [],
       });
     }
 
@@ -308,23 +305,28 @@ export async function getCourseById(id: number) {
   return result[0] || null;
 }
 
-export async function createCourse(data: typeof courses.$inferInsert) {
+export async function upsertCourse(teacherId: number, input: any) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("数据库连接失败");
 
-  const result = await db.insert(courses).values(data);
-  return { id: Number((result as any).insertId) };
-}
+  const { id, ...data } = input;
 
-export async function updateCourse(
-  id: number,
-  data: Partial<typeof courses.$inferInsert>
-) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  await db.update(courses).set(data).where(eq(courses.id, id));
-  return { success: true };
+  if (id) {
+    // 编辑模式：确保只有创建者本人能修改
+    await db.update(courses)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(courses.id, id), eq(courses.teacherId, teacherId)));
+    return { id, action: "updated" };
+  } else {
+    // 新增模式
+    const [result] = await db.insert(courses).values({
+      ...data,
+      teacherId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return { id: Number(result.insertId), action: "created" };
+  }
 }
 
 export async function deleteCourse(id: number) {

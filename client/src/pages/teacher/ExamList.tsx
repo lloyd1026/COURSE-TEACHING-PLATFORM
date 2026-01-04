@@ -21,11 +21,8 @@ import { Link } from "wouter";
 // 引用通用组件
 import { ConfirmDeleteDialog } from "@/components/common/ConfirmDeleteDialog";
 import { Pagination } from "@/components/common/Pagination";
-import {
-  FilterTabs,
-  FilterSlider,
-} from "@/components/common/FilterGroup";
-import { SearchFilterBar } from "@/components/common/SearchFilterBar"; // 1. 引入统一搜索框
+import { FilterTabs, FilterSlider } from "@/components/common/FilterGroup";
+import { SearchFilterBar } from "@/components/common/SearchFilterBar";
 import { ExamForm } from "@/components/teacher/exams/ExamForm";
 
 export default function ExamList() {
@@ -41,7 +38,7 @@ export default function ExamList() {
   const pageSize = 8;
 
   const [showForm, setShowForm] = useState(false);
-  const [editingExam, setEditingExam] = useState<any>(null);
+  const [activeExamId, setActiveExamId] = useState<number | null>(null);
   const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
   const [selectedExam, setSelectedExam] = useState<any>(null);
 
@@ -51,6 +48,12 @@ export default function ExamList() {
   const { data: exams, isLoading } = trpc.exams.list.useQuery();
   const { data: teacherCourses } = trpc.courses.list.useQuery();
 
+  // 获取完整详情以供编辑回显
+  const { data: fullExamDetail, isFetching: isFetchingDetail } = trpc.exams.get.useQuery(
+    { id: activeExamId! },
+    { enabled: !!activeExamId, staleTime: 0 }
+  );
+
   // 联动获取：当课程筛选器变动时，计算该课程下的班级
   const availableClasses = useMemo(() => {
     if (courseFilter === "all" || !teacherCourses) return [];
@@ -58,19 +61,13 @@ export default function ExamList() {
     return (course as any)?.linkedClasses || [];
   }, [courseFilter, teacherCourses]);
 
-  // --- 3. 筛选逻辑 (search 确认后再触发) ---
+  // --- 3. 筛选逻辑 ---
   const filteredExams = useMemo(() => {
     return (exams || []).filter((e: any) => {
       const matchSearch = !search || e.title.toLowerCase().includes(search.toLowerCase());
       const matchStatus = statusFilter === "all" || e.status === statusFilter;
       const matchCourse = courseFilter === "all" || e.courseId === courseFilter;
-
-      // 级联过滤：检查该考试是否分发给了选中的班级
-      const matchClass =
-        classFilter === "all" ||
-        (e.targetClasses &&
-          e.targetClasses.some((tc: any) => tc.id === classFilter));
-
+      const matchClass = classFilter === "all" || (e.targetClasses && e.targetClasses.some((tc: any) => tc.id === classFilter));
       return matchSearch && matchStatus && matchCourse && matchClass;
     });
   }, [exams, search, statusFilter, courseFilter, classFilter]);
@@ -80,19 +77,19 @@ export default function ExamList() {
     return filteredExams.slice(start, start + pageSize);
   }, [filteredExams, currentPage]);
 
-  // 切换课程时重置班级和页码
   useEffect(() => {
     setClassFilter("all");
     setCurrentPage(1);
   }, [courseFilter]);
+
   useEffect(() => {
     setCurrentPage(1);
   }, [search, statusFilter, classFilter]);
 
   const deleteMutation = trpc.exams.delete.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("考试已成功撤回");
-      utils.exams.list.invalidate();
+      await utils.exams.invalidate();
       setIsDeleteAlertOpen(false);
     },
   });
@@ -132,41 +129,22 @@ export default function ExamList() {
         {/* Header */}
         <header className="flex-shrink-0 flex justify-between items-end mb-10">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
-              考试管理
-            </h1>
-            <p className="text-zinc-400 text-[10px] mt-2 tracking-[0.3em] uppercase font-black">
-              Examination Aggregate View
-            </p>
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-900">考试管理</h1>
+            <p className="text-zinc-400 text-[10px] mt-2 tracking-[0.3em] uppercase font-black">Examination Aggregate View</p>
           </div>
           <Button
-            onClick={() => {
-              setEditingExam(null);
-              setShowForm(true);
-            }}
+            onClick={() => { setActiveExamId(null); setShowForm(true); }}
             className="rounded-[1.5rem] bg-zinc-900 text-white h-14 px-8 text-sm font-bold shadow-2xl hover:scale-[1.02] active:scale-95 transition-all gap-2"
           >
             <Plus className="h-5 w-5" /> 发布新考试
           </Button>
         </header>
 
-        {/* 筛选区域：搜索框在上，标签在下 */}
+        {/* 筛选区域 */}
         <div className="flex-shrink-0 space-y-6 mb-10">
-          <SearchFilterBar 
-            onSearch={setSearch} 
-            placeholder="搜索考试标题..." 
-          />
-
-          <FilterTabs
-            value={statusFilter}
-            onChange={setStatusFilter}
-            options={Object.entries(STATUS_CONFIG).map(([key, cfg]: any) => ({
-              label: cfg.label,
-              value: key,
-            }))}
-          />
-
-          {/* 课程筛选 */}
+          <SearchFilterBar onSearch={setSearch} placeholder="搜索考试标题..." />
+          <FilterTabs value={statusFilter} onChange={setStatusFilter} options={Object.entries(STATUS_CONFIG).map(([key, cfg]: any) => ({ label: cfg.label, value: key }))} />
+          
           <FilterSlider
             label="授课课程"
             searchValue={courseSearch}
@@ -177,14 +155,11 @@ export default function ExamList() {
             options={[
               { label: "全部课程", value: "all" },
               ...(teacherCourses || [])
-                .filter(c =>
-                  c.name.toLowerCase().includes(courseSearch.toLowerCase())
-                )
+                .filter(c => c.name.toLowerCase().includes(courseSearch.toLowerCase()))
                 .map(c => ({ label: c.name, value: c.id })),
             ]}
           />
 
-          {/* 班级筛选 */}
           {courseFilter !== "all" && (
             <div className="animate-in slide-in-from-top-2 duration-300">
               <FilterSlider
@@ -197,9 +172,7 @@ export default function ExamList() {
                 options={[
                   { label: "全部班级", value: "all" },
                   ...availableClasses
-                    .filter((c: any) =>
-                      c.name.toLowerCase().includes(classSearch.toLowerCase())
-                    )
+                    .filter((c: any) => c.name.toLowerCase().includes(classSearch.toLowerCase()))
                     .map((c: any) => ({ label: c.name, value: c.id })),
                 ]}
               />
@@ -211,17 +184,13 @@ export default function ExamList() {
         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-10">
             {pagedExams.map((exam: any) => {
-              const status =
-                STATUS_CONFIG[exam.status] || STATUS_CONFIG.not_started;
+              const status = STATUS_CONFIG[exam.status] || STATUS_CONFIG.not_started;
+              const isExamLoading = activeExamId === exam.id && isFetchingDetail;
+
               return (
-                <div
-                  key={exam.id}
-                  className="group relative bg-white/70 backdrop-blur-2xl border border-white/50 rounded-[3rem] p-8 shadow-sm hover:shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] transition-all duration-500"
-                >
+                <div key={exam.id} className="group relative bg-white/70 backdrop-blur-2xl border border-white/50 rounded-[3rem] p-8 shadow-sm hover:shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] transition-all duration-500">
                   <div className="flex justify-between items-start mb-6">
-                    <div
-                      className={`h-16 w-16 rounded-[1.5rem] ${status.bg} ${status.color} flex items-center justify-center shadow-inner`}
-                    >
+                    <div className={`h-16 w-16 rounded-[1.5rem] ${status.bg} ${status.color} flex items-center justify-center shadow-inner`}>
                       <status.icon className="h-8 w-8" />
                     </div>
                     <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
@@ -230,24 +199,21 @@ export default function ExamList() {
                           <ChevronRight className="h-5 w-5" />
                         </Button>
                       </Link>
+                      
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => {
-                          setEditingExam(exam);
-                          setShowForm(true);
-                        }}
-                        className="h-11 w-11 rounded-2xl bg-zinc-100 hover:bg-zinc-900 hover:text-white transition-all"
+                        disabled={isExamLoading}
+                        onClick={() => setActiveExamId(exam.id)}
+                        className={`h-11 w-11 rounded-2xl transition-all ${isExamLoading ? "bg-blue-100" : "bg-zinc-100 hover:bg-zinc-900 hover:text-white"}`}
                       >
-                        <Edit3 className="h-4.5 w-4.5" />
+                        {isExamLoading ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" /> : <Edit3 className="h-4.5 w-4.5" />}
                       </Button>
+
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => {
-                          setSelectedExam(exam);
-                          setIsDeleteAlertOpen(true);
-                        }}
+                        onClick={() => { setSelectedExam(exam); setIsDeleteAlertOpen(true); }}
                         className="h-11 w-11 rounded-2xl bg-rose-50 hover:bg-rose-500 hover:text-white text-rose-500 transition-all"
                       >
                         <Trash2 className="h-4.5 w-4.5" />
@@ -256,25 +222,21 @@ export default function ExamList() {
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-2xl font-bold text-zinc-900 tracking-tight leading-tight">
-                      {exam.title}
-                    </h3>
+                    <h3 className="text-2xl font-bold text-zinc-900 tracking-tight leading-tight">{exam.title}</h3>
 
+                    {/* ✅ 恢复：班级标签 UI */}
                     <div className="flex flex-wrap gap-1.5">
                       {exam.targetClasses?.map((cls: any) => (
-                        <span
-                          key={cls.id}
-                          className="px-2.5 py-1 bg-blue-50/50 text-blue-600 rounded-lg text-[10px] font-bold border border-blue-100/50"
-                        >
+                        <span key={cls.id} className="px-2.5 py-1 bg-blue-50/50 text-blue-600 rounded-lg text-[10px] font-bold border border-blue-100/50">
                           {cls.name}
                         </span>
                       ))}
                     </div>
 
+                    {/* ✅ 恢复：时间/时长/课程 图标详情 UI */}
                     <div className="flex flex-wrap gap-4 text-zinc-400 pt-2">
                       <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100/50 rounded-full text-[11px] font-bold">
-                        <Calendar className="h-3.5 w-3.5" />{" "}
-                        {new Date(exam.startTime).toLocaleDateString()}
+                        <Calendar className="h-3.5 w-3.5" /> {new Date(exam.startTime).toLocaleDateString()}
                       </div>
                       <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100/50 rounded-full text-[11px] font-bold">
                         <Timer className="h-3.5 w-3.5" /> {exam.duration}m
@@ -286,9 +248,7 @@ export default function ExamList() {
                   </div>
 
                   <div className="absolute bottom-10 right-10">
-                    <span
-                      className={`text-[10px] font-black uppercase tracking-[0.2em] px-4 py-1.5 rounded-full border border-current/10 ${status.color} ${status.bg}`}
-                    >
+                    <span className={`text-[10px] font-black uppercase tracking-[0.2em] px-4 py-1.5 rounded-full border border-current/10 ${status.color} ${status.bg}`}>
                       {status.label}
                     </span>
                   </div>
@@ -296,34 +256,22 @@ export default function ExamList() {
               );
             })}
           </div>
-          {pagedExams.length === 0 && (
-            <div className="h-64 flex flex-col items-center justify-center text-zinc-300 space-y-4">
-              <CircleDashed className="h-10 w-10 animate-spin opacity-20" />
-              <p className="text-[10px] font-bold uppercase tracking-widest">
-                暂无匹配的考试档案
-              </p>
-            </div>
-          )}
         </div>
 
         <div className="flex-none mt-6">
-          <Pagination
-            currentPage={currentPage}
-            totalItems={filteredExams.length}
-            pageSize={pageSize}
-            onPageChange={setCurrentPage}
-          />
+          <Pagination currentPage={currentPage} totalItems={filteredExams.length} pageSize={pageSize} onPageChange={setCurrentPage} />
         </div>
       </div>
 
-      {showForm && (
+      {(showForm || (activeExamId && fullExamDetail)) && (
         <ExamForm
-          initialData={editingExam}
-          onSuccess={() => {
+          initialData={activeExamId ? fullExamDetail : null}
+          onSuccess={async () => {
+            await utils.exams.invalidate();
             setShowForm(false);
-            utils.exams.list.invalidate();
+            setActiveExamId(null);
           }}
-          onCancel={() => setShowForm(false)}
+          onCancel={() => { setShowForm(false); setActiveExamId(null); }}
         />
       )}
 
