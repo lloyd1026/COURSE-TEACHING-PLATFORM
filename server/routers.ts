@@ -11,10 +11,18 @@ import {
   adminProcedure,
 } from "./_core/trpc";
 import * as db from "./db";
+import { getAssignmentById } from "./services/assignment.service";
 import { invokeLLM } from "./_core/llm";
 import * as auth from "./auth";
 import { sdk } from "./_core/sdk";
 import { ENV } from "./_core/env";
+
+// 分割路由导入
+import { submissionRouter } from "./routers/submissions";
+
+// 考试路由
+import { examRouter } from "./routers/exams";
+import { assignmentRouter } from "./routers/assignments";
 
 export const appRouter = router({
   system: systemRouter,
@@ -364,82 +372,14 @@ export const appRouter = router({
   }),
 
   // ==================== 作业管理 ====================
-  assignments: router({
-    // 获取作业列表, teacher查看自己创建的作业，学生查看自己班级的作业
-    list: protectedProcedure
-      .input(
-        z
-          .object({
-            courseId: z.number().optional(),
-            teacherId: z.number().optional(),
-          })
-          .optional()
-      )
-      .query(async ({ ctx, input }) => {
-        // 1. 如果是学生，直接调用连表查询
-        if (ctx.user.role === "student") {
-          return await db.getAssignmentsByStudentId(
-            ctx.user.id,
-            input?.courseId
-          );
-        }
-
-        // 2. 如果是教师/管理员，调用你之前的老方法
-        return await db.getAllAssignments(input?.teacherId, input?.courseId);
-      }),
-
-    // 获取作业详情
-    get: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        return await db.getAssignmentById(input.id);
-      }),
-    // 增删改，教师权限
-    create: teacherProcedure
-      .input(
-        z.object({
-          title: z.string(),
-          description: z.string().optional(),
-          courseId: z.number(),
-          classId: z.number(),
-          dueDate: z.date(),
-          status: z.enum(["draft", "published", "closed"]).optional(),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        return await db.createAssignment({
-          ...input,
-          status: input.status ?? "published",
-          createdBy: ctx.user.id, // 自动使用当前登录教师ID
-        });
-      }),
-
-    update: teacherProcedure
-      .input(
-        z.object({
-          id: z.number(),
-          title: z.string().optional(),
-          description: z.string().optional(),
-          courseId: z.number().optional(),
-          classId: z.number().optional(),
-          dueDate: z.date().optional(),
-          status: z.enum(["draft", "published", "closed"]).optional(),
-        })
-      )
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        return await db.updateAssignment(id, data);
-      }),
-
-    delete: teacherProcedure
-      .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
-        return await db.deleteAssignment(input.id);
-      }),
-  }),
+  assignments: assignmentRouter,
 
   // ==================== 题库管理 ====================
   questions: router({
+    /**
+     * 列表查询：角色分流
+     * 教师端现在会额外返回 questionCount 和 totalScore
+     */
     list: protectedProcedure
       .input(
         z
@@ -448,144 +388,68 @@ export const appRouter = router({
             search: z.string().optional(),
           })
           .optional()
-      )
+      ) // 让 input 可选
       .query(async ({ ctx, input }) => {
-        const { role, id: userId } = ctx.user;
-        const filters = input || {};
-
-        switch (role) {
-          case "teacher":
-            return await db.getQuestionsByTeacher(userId, filters);
-
-          case "admin":
-            return await db.getQuestionsForAdmin(filters);
-
-          // case "student":
-          //   return await db.getQuestionsByStudent(userId, filters.courseId);
-
-          default:
-            throw new Error("未知的用户角色");
-        }
+        return await db.getQuestionsByTeacher(ctx.user.id, {
+          courseId: input?.courseId,
+          search: input?.search,
+        });
       }),
 
-    // --- 统一 Upsert (创建或更新) ---
+    /**
+     * 详情获取：
+     * 返回值现在包含 classIds 数组和 questions 对象数组
+     */
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const data = await getAssignmentById(input.id);
+        if (!data) throw new Error("该作业记录不存在");
+        return data;
+      }),
+
+    /**
+     * 核心保存接口：新增或更新
+     * 增加 selectedQuestions 校验
+     */
     upsert: teacherProcedure
+    .input(
+      z.object({
+        id: z.number().optional(),
+        title: z.string().min(1, "题目简称不能为空"),
+        content: z.string().min(1, "题干正文不能为空"),
+        type: z.enum(["single_choice", "multiple_choice", "fill_blank", "true_false", "essay", "programming"]),
+        difficulty: z.enum(["easy", "medium", "hard"]),
+        answer: z.string().min(1, "正确答案不能为空"),
+        analysis: z.string().optional(),
+        courseId: z.number().min(1, "请选择所属课程"),
+        options: z.any().optional().nullable(), // 这里接收选项数组
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return await db.upsertQuestion(ctx.user.id, input);
+    }),
+
+    /**
+     * 删除作业
+     */
+    delete: teacherProcedure
       .input(
         z.object({
-          id: z.number().optional(), // 有 ID 则更新，无 ID 则创建
-          type: z.enum([
-            "single_choice",
-            "multiple_choice",
-            "fill_blank",
-            "true_false",
-            "essay",
-            "programming",
-          ]),
-          courseId: z.number(),
-          title: z.string(),
-          content: z.string().optional(),
-          options: z.any().optional(), // 接收数组，后端自动 JSON 序列化
-          answer: z.string().optional(),
-          analysis: z.string().optional(),
-          difficulty: z.enum(["easy", "medium", "hard"]),
+          ids: z.array(z.number()),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        return await db.upsertQuestion(ctx.user.id, input);
-      }),
-
-    // --- 批量安全删除 ---
-    // 逻辑：检查引用，有关联则归档，无关联则彻底删除
-    deleteBulk: teacherProcedure
-      .input(z.object({ ids: z.array(z.number()) }))
-      .mutation(async ({ ctx, input }) => {
+        // 这里的逻辑会去 DB 层执行引用检查
         return await db.deleteQuestionsBulk(input.ids, ctx.user.id);
-      }),
-
-    // --- 批量安全删除 ---
-    import: teacherProcedure
-      .input(
-        z.object({
-          questions: z.array(
-            z.object({
-              type: z.string(),
-              courseId: z.number(),
-              content: z.string(),
-              options: z.any().optional(),
-              answer: z.string(),
-              analysis: z.string().optional(),
-              difficulty: z.string().optional(),
-            })
-          ),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        return await db.importQuestionsBulk(ctx.user.id, input.questions);
       }),
   }),
 
   // ==================== 考试管理 ====================
-  exams: router({
-    list: protectedProcedure
-      .input(z.object({ search: z.string().optional() }).optional())
-      .query(async ({ ctx }) => {
-        if (ctx.user.role === "admin") {
-          return await db.getExamsForAdmin();
-        }
-        if (ctx.user.role === "teacher") {
-          return await db.getExamsByTeacher(ctx.user.id);
-        }
-        if (ctx.user.role === "student") {
-          return await db.getExamsByStudent(ctx.user.id);
-        }
-        return [];
-      }),
+  exams: examRouter,
 
-    // 2. 获取单场考试详情 (用于编辑回填)
-    get: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        return await db.getExamById(input.id);
-      }),
-
-    // 3. 核心：创建与更新合一 (Upsert)
-    // 教师视角：支持同时分发给多个班级
-    upsert: teacherProcedure
-      .input(
-        z.object({
-          id: z.number().optional(),
-          courseId: z.number(),
-          classIds: z.array(z.number()), // 接收班级 ID 数组
-          title: z.string().min(1, "标题不能为空"),
-          description: z.string().optional(),
-          duration: z.number().min(1, "时长需大于0"),
-          startTime: z.date(),
-          totalScore: z.number().default(100),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        // 自动计算结束时间
-        const endTime = new Date(
-          input.startTime.getTime() + input.duration * 60 * 1000
-        );
-
-        const { classIds, ...examData } = input;
-
-        return await db.upsertExam(
-          ctx.user.id,
-          { ...examData, endTime },
-          classIds
-        );
-      }),
-
-    // 4. 删除考试
-    // 依靠数据库 onDelete: "cascade" 自动清理关联的 exam_classes
-    delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
-        return await db.deleteExam(input.id);
-      }),
-  }),
+  // ==================== 作业提交 ====================
+  submissions: submissionRouter,
 
   // ==================== 知识图谱 ====================
   knowledge: router({

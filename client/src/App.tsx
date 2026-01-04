@@ -33,6 +33,8 @@ import AIAssistant from "./pages/student/AIAssistant";
 import StudentExperimentList from "./pages/student/ExperimentList";
 import Profile from "./pages/Profile";
 import StudentCourseDetail from "./pages/student/StudentCourseDetail";
+import AssignmentGrading from "./pages/teacher/AssignmentGrading";
+import GradingDetail from "./pages/teacher/GradingDetail";
 
 function Router() {
   return (
@@ -59,6 +61,11 @@ function Router() {
       <Route path="/teacher/exams/:id" component={ExamDetail} />
       <Route path="/teacher/knowledge-graph" component={KnowledgeGraph} />
       <Route path="/teacher/experiments" component={ExperimentList} />
+      <Route
+        path="/teacher/assignments/:id/grading"
+        component={AssignmentGrading}
+      />
+      <Route path="/teacher/grading/:submissionId" component={GradingDetail} />
 
       {/* Student Routes */}
       <Route path="/student/dashboard" component={StudentDashboard} />

@@ -43,7 +43,7 @@ export default function QuestionBank() {
   const { data: courses } = trpc.courses.list.useQuery();
 
   // 批量/单个删除 Mutation
-  const deleteBulkMutation = trpc.questions.deleteBulk.useMutation({
+  const deleteBulkMutation = trpc.questions.delete.useMutation({
     onSuccess: (res) => {
       toast.success(res.message);
       utils.questions.list.invalidate();
