@@ -1,4 +1,4 @@
-import { eq, desc, and, like, or, inArray, asc } from "drizzle-orm";
+import { eq, desc, and, like, or, inArray, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -16,6 +16,9 @@ import {
   courseClasses,
   aiConversations,
   aiMessages,
+  examClasses,
+  examQuestions,
+  assignmentQuestions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { hashPassword } from "./auth";
@@ -141,6 +144,7 @@ export async function getAllUsers(searchQuery?: string) {
 
 // ==================== 课程管理 ====================
 
+// tobe deleted
 export async function getAllCourses(searchQuery?: string) {
   const db = await getDb();
   if (!db) return [];
@@ -161,42 +165,80 @@ export async function getAllCourses(searchQuery?: string) {
   return await db.select().from(courses).orderBy(desc(courses.createdAt));
 }
 
-// 获取某教师创建的课程列表，支持搜索过滤
-export async function getCoursesByTeacherId(
-  teacherId: number,
-  searchQuery?: string
-) {
+/**
+ * 获取教师课程及其关联班级
+ * 逻辑：courses -> courseClasses -> classes
+ */
+export async function getCoursesByTeacher(teacherId: number, searchQuery?: string) {
   const db = await getDb();
   if (!db) return [];
 
+  // 1. 构建基础查询，拉取课程、班级 ID 和班级名称
+  const query = db
+    .select({
+      id: courses.id,
+      name: courses.name,
+      code: courses.code,
+      status: courses.status,
+      credits: courses.credits,
+      semester: courses.semester,
+      // 联查字段
+      classId: classes.id,
+      className: classes.name,
+    })
+    .from(courses)
+    .leftJoin(courseClasses, eq(courses.id, courseClasses.courseId))
+    .leftJoin(classes, eq(courseClasses.classId, classes.id));
+
+  // 2. 准备过滤条件（必须是当前老师）
+  const filters = [eq(courses.teacherId, teacherId)];
   if (searchQuery) {
-    return await db
-      .select()
-      .from(courses)
-      .where(
-        and(
-          eq(courses.teacherId, teacherId),
-          or(
-            like(courses.name, `%${searchQuery}%`),
-            like(courses.code, `%${searchQuery}%`)
-          )
-        )
-      )
-      .orderBy(desc(courses.createdAt));
+    filters.push(
+      or(
+        like(courses.name, `%${searchQuery}%`),
+        like(courses.code, `%${searchQuery}%`)
+      ) as any
+    );
   }
 
-  return await db
-    .select()
-    .from(courses)
-    .where(eq(courses.teacherId, teacherId))
-    .orderBy(desc(courses.createdAt));
+  const rows = await query.where(and(...filters)).orderBy(desc(courses.createdAt));
+
+  // 3. 数据聚合：由于 Join 会产生多行（一门课对应多个班级），需要按课程 ID 聚合
+  const courseMap = new Map<number, any>();
+
+  for (const row of rows) {
+    if (!courseMap.has(row.id)) {
+      courseMap.set(row.id, {
+        id: row.id,
+        name: row.name,
+        code: row.code,
+        status: row.status,
+        credits: row.credits,
+        semester: row.semester,
+        linkedClasses: [] // 用于存放班级列表
+      });
+    }
+
+    // 如果该课程有关联班级，则推入数组
+    if (row.classId) {
+      courseMap.get(row.id).linkedClasses.push({
+        id: row.classId,
+        name: row.className
+      });
+    }
+  }
+
+  return Array.from(courseMap.values());
 }
 
 /**
  * 根据学生（用户）ID 获取其所属班级关联的所有课程
  * 逻辑：users.id -> students.userId -> students.classId -> courseClasses.classId -> courses
  */
-export async function getCoursesByStudentId(userId: number, searchQuery?: string) {
+export async function getCoursesByStudentId(
+  userId: number,
+  searchQuery?: string
+) {
   const db = await getDb();
   if (!db) return [];
 
@@ -220,11 +262,11 @@ export async function getCoursesByStudentId(userId: number, searchQuery?: string
       and(
         eq(students.userId, userId), // 这里的 userId 是从 ctx.user.id 传进来的
         eq(courses.status, "active"), // 学生通常只看激活状态的课
-        searchQuery 
+        searchQuery
           ? or(
               like(courses.name, `%${searchQuery}%`),
               like(courses.code, `%${searchQuery}%`)
-            ) 
+            )
           : undefined
       )
     )
@@ -293,14 +335,16 @@ export async function deleteCourse(id: number) {
     .where(eq(courseClasses.courseId, id));
 
   if (linkedClassesCount.length > 0) {
-    throw new Error(`无法删除：仍有 ${linkedClassesCount.length} 个班级关联此课程，请先在班级管理中解除关联。`);
+    throw new Error(
+      `无法删除：仍有 ${linkedClassesCount.length} 个班级关联此课程，请先在班级管理中解除关联。`
+    );
   }
 
   // 4. 执行物理删除
   // 虽然上面检查了 count，但为了冗余安全，还是保留清理中间表的动作
   await db.delete(courseClasses).where(eq(courseClasses.courseId, id));
   await db.delete(courses).where(eq(courses.id, id));
-  
+
   return { success: true };
 }
 
@@ -426,7 +470,10 @@ export async function createClass(data: typeof classes.$inferInsert) {
   return { id: Number((result as any).insertId) };
 }
 // 更新班级信息
-export async function updateClass(id: number, data: Partial<typeof classes.$inferInsert>) {
+export async function updateClass(
+  id: number,
+  data: Partial<typeof classes.$inferInsert>
+) {
   const db = await getDb();
   if (!db) throw new Error("数据库连接失败");
   return await db.update(classes).set(data).where(eq(classes.id, id));
@@ -459,7 +506,9 @@ export async function deleteClass(id: number) {
     .limit(1);
 
   if (linkedCourseClasses.length > 0) {
-    throw new Error("无法删除：该班级已有教学计划（关联课程），请先解除课程关联。");
+    throw new Error(
+      "无法删除：该班级已有教学计划（关联课程），请先解除课程关联。"
+    );
   }
 
   // 3. 执行删除
@@ -578,7 +627,7 @@ export async function getAllAssignments(teacherId?: number, courseId?: number) {
   if (teacherId) {
     filters.push(eq(assignments.createdBy, teacherId));
   }
-  
+
   // 如果传了课程 ID，则按课程过滤
   if (courseId) {
     filters.push(eq(assignments.courseId, courseId));
@@ -608,7 +657,10 @@ export async function getAllAssignments(teacherId?: number, courseId?: number) {
  * 根据学生（用户）ID 获取其所属班级的所有作业
  * 逻辑：assignments.classId -> students.classId (通过 students.userId 过滤)
  */
-export async function getAssignmentsByStudentId(userId: number, courseId?: number) {
+export async function getAssignmentsByStudentId(
+  userId: number,
+  courseId?: number
+) {
   const db = await getDb();
   if (!db) return [];
 
@@ -630,7 +682,7 @@ export async function getAssignmentsByStudentId(userId: number, courseId?: numbe
     .innerJoin(students, eq(assignments.classId, students.classId))
     .where(
       and(
-        eq(students.userId, userId),   // 匹配当前学生
+        eq(students.userId, userId), // 匹配当前学生
         eq(assignments.status, "published"), // 学生只看已发布的
         courseId ? eq(assignments.courseId, courseId) : undefined // 如果传了 ID 则精准过滤
       )
@@ -659,7 +711,10 @@ export async function createAssignment(data: typeof assignments.$inferInsert) {
 }
 
 // 更新作业信息
-export async function updateAssignment(id: number, data: Partial<typeof assignments.$inferInsert>) {
+export async function updateAssignment(
+  id: number,
+  data: Partial<typeof assignments.$inferInsert>
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return await db.update(assignments).set(data).where(eq(assignments.id, id));
@@ -674,63 +729,82 @@ export async function deleteAssignment(id: number) {
 
 // ==================== 题库管理 ====================
 
-// to be deleted
-export async function getAllQuestions(courseId?: number) {
-  const db = await getDb();
-  if (!db) return [];
-
-  if (courseId) {
-    return await db
-      .select()
-      .from(questions)
-      .where(eq(questions.courseId, courseId))
-      .orderBy(desc(questions.createdAt));
-  }
-
-  return await db.select().from(questions).orderBy(desc(questions.createdAt));
-}
-
-// 查询某教师创建的题目列表，支持按课程和搜索关键词过滤
-export async function getQuestionsByTeacherId(
+// --- 教师视角：管理我创建的题目 ---
+export async function getQuestionsByTeacher(
   teacherId: number,
-  courseId?: number,
-  search?: string
+  filters: { courseId?: number; search?: string }
 ) {
   const db = await getDb();
   if (!db) throw new Error("数据库连接失败");
 
-  // 1. 准备基础过滤条件：必须是当前教师创建的
-  const filters = [eq(questions.createdBy, teacherId)];
+  const whereConditions = [eq(questions.createdBy, teacherId),eq(questions.status, "active")];
+  if (filters.courseId) whereConditions.push(eq(questions.courseId, filters.courseId));
+  if (filters.search) whereConditions.push(like(questions.content, `%${filters.search}%`));
 
-  // 2. 动态增加课程过滤
-  if (courseId) {
-    filters.push(eq(questions.courseId, courseId));
-  }
-
-  // 3. 动态增加搜索过滤
-  if (search) {
-    filters.push(like(questions.content, `%${search}%`));
-  }
-
-  // 4. 执行查询：使用 and(...filters) 将所有条件合并
   return await db
     .select({
       id: questions.id,
       type: questions.type,
       content: questions.content,
       difficulty: questions.difficulty,
-      answer: questions.answer,
-      analysis: questions.analysis,
-      options: questions.options,
-      courseId: questions.courseId,
       courseName: courses.name,
+      createdAt: questions.createdAt,
     })
     .from(questions)
     .leftJoin(courses, eq(questions.courseId, courses.id))
-    .where(and(...filters))
+    .where(and(...whereConditions))
     .orderBy(desc(questions.createdAt));
 }
-// to be deleted
+
+// --- 管理员视角：监控全校题库分布 ---
+export async function getQuestionsForAdmin(filters: { courseId?: number; search?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  const whereConditions = [];
+  if (filters.courseId) whereConditions.push(eq(questions.courseId, filters.courseId));
+  if (filters.search) whereConditions.push(like(questions.content, `%${filters.search}%`));
+
+  return await db
+    .select({
+      id: questions.id,
+      type: questions.type,
+      content: questions.content,
+      difficulty: questions.difficulty,
+      courseName: courses.name,
+      creatorName: users.name, // 管理员额外看是谁出的题
+    })
+    .from(questions)
+    .leftJoin(courses, eq(questions.courseId, courses.id))
+    .leftJoin(users, eq(questions.createdBy, users.id))
+    .where(whereConditions.length ? and(...whereConditions) : undefined)
+    .orderBy(desc(questions.createdAt));
+}
+
+// --- 学生视角：练习模式（仅限已选课程的题目） ---
+export async function getQuestionsByStudent(userId: number, courseId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  // 逻辑：通过 student 表找到学生所在的班级，再找到班级关联的课程
+  return await db
+    .select({
+      id: questions.id,
+      type: questions.type,
+      content: questions.content,
+      // 注意：学生端通常不返回 answer 和 analysis，除非是练习模式或已提交
+    })
+    .from(students)
+    .innerJoin(classes, eq(students.classId, classes.id))
+    // 此处假设有一个 course_classes 表记录班级和课程的关联
+    .innerJoin(questions, eq(questions.courseId, courseId)) 
+    .where(and(
+      eq(students.userId, userId),
+      courseId ? eq(questions.courseId, courseId) : undefined
+    ));
+}
+
+// 获取单条题目详情
 export async function getQuestionById(id: number) {
   const db = await getDb();
   if (!db) return null;
@@ -743,60 +817,298 @@ export async function getQuestionById(id: number) {
   return result[0] || null;
 }
 
-export async function createQuestion(data: typeof questions.$inferInsert) {
+// 创建或更新
+export async function upsertQuestion(teacherId: number, data: any) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("数据库连接失败");
 
-  const result = await db.insert(questions).values(data);
-  return { id: Number((result as any).insertId) };
-}
+  const { id, ...payload } = data;
+  const finalData = {
+    ...payload,
+    createdBy: teacherId,
+    // 如果前端传的是选项数组，转为 JSON 存入
+    options: payload.options ? JSON.stringify(payload.options) : null,
+  };
 
-export async function updateQuestion(
-  id: number,
-  data: Partial<typeof questions.$inferInsert>
-) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return await db.update(questions).set(data).where(eq(questions.id, id));
-}
-
-export async function deleteQuestion(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return await db.delete(questions).where(eq(questions.id, id));
-}
-
-// ==================== 考试管理 ====================
-
-export async function getAllExams(courseId?: number) {
-  const db = await getDb();
-  if (!db) return [];
-
-  if (courseId) {
-    return await db
-      .select()
-      .from(exams)
-      .where(eq(exams.courseId, courseId))
-      .orderBy(desc(exams.createdAt));
+  if (id) {
+    // 只有本人能改本人的题
+    await db.update(questions)
+      .set(finalData)
+      .where(and(eq(questions.id, id), eq(questions.createdBy, teacherId)));
+    return id;
+  } else {
+    const [result] = await db.insert(questions).values(finalData);
+    return result.insertId;
   }
+}
 
-  return await db.select().from(exams).orderBy(desc(exams.createdAt));
+// 安全删除题目（可批量）
+// 规则：
+// 1. 先检查题目是否被任何考试或作业引用过
+// 2. 如果有引用，执行“软删除”，标记为归档（archived）
+// 3. 如果无引用，直接物理删除或标记为 deleted
+export async function deleteQuestionsBulk(ids: number[], teacherId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  const results = {
+    deleted: 0,
+    archived: 0,
+    failed: 0
+  };
+
+  // 使用事务确保批量操作的原子性
+  await db.transaction(async (tx) => {
+    for (const id of ids) {
+      try {
+        // 1. 检查引用情况
+        const [usage] = await tx.select({
+          examRefCount: sql<number>`(SELECT COUNT(*) FROM examQuestions WHERE questionId = ${id})`,
+          assignRefCount: sql<number>`(SELECT COUNT(*) FROM assignmentQuestions WHERE questionId = ${id})`
+        })
+        .from(questions)
+        .where(eq(questions.id, id));
+
+        const totalRefs = Number(usage?.examRefCount || 0) + Number(usage?.assignRefCount || 0);
+
+        if (totalRefs > 0) {
+          // 2. 有引用 -> 归档
+          await tx.update(questions)
+            .set({ status: "archived", updatedAt: new Date() })
+            .where(and(eq(questions.id, id), eq(questions.createdBy, teacherId)));
+          results.archived++;
+        } else {
+          // 3. 无引用 -> 物理删除
+          await tx.delete(questions)
+            .where(and(eq(questions.id, id), eq(questions.createdBy, teacherId)));
+          results.deleted++;
+        }
+      } catch (err) {
+        console.error(`题目 ID ${id} 删除失败:`, err);
+        results.failed++;
+      }
+    }
+  });
+
+  return {
+    success: true,
+    ...results,
+    message: `操作完成：${results.deleted} 题已彻底删除，${results.archived} 题因有关联而已转入归档${results.failed > 0 ? `，${results.failed} 题操作失败` : ''}。`
+  };
+}
+
+// ==================== 考试管理（**模版**） ====================
+
+// --- 辅助函数：将 Join 产生的扁平数据聚合为嵌套对象 ---
+function aggregateExams(rows: any[]) {
+  const examMap = new Map();
+  rows.forEach((row) => {
+    if (!examMap.has(row.exam.id)) {
+      examMap.set(row.exam.id, {
+        ...row.exam,
+        courseName: row.courseName,
+        targetClasses: [], // 存储班级数组
+      });
+    }
+    if (row.classId) {
+      examMap.get(row.exam.id).targetClasses.push({
+        id: row.classId,
+        name: row.className,
+      });
+    }
+  });
+  return Array.from(examMap.values());
+}
+
+/**
+ * 通用的考试状态计算 SQL 片段
+ * 统一标准：未开始 (not_started) -> 进行中 (in_progress) -> 已结束 (ended)
+ */
+const getExamStatusSql = () => {
+  return sql<string>`
+    CASE 
+      WHEN UTC_TIMESTAMP() < ${exams.startTime} THEN 'not_started'
+      WHEN UTC_TIMESTAMP() >= ${exams.startTime} AND UTC_TIMESTAMP() <= ${exams.endTime} THEN 'in_progress'
+      ELSE 'ended'
+    END
+  `.as('status');
+};
+
+// 辅助：定义需要查询的 Exam 基础字段，避免重复写
+const examColumns = {
+  id: exams.id,
+  courseId: exams.courseId,
+  title: exams.title,
+  description: exams.description,
+  duration: exams.duration,
+  startTime: exams.startTime,
+  endTime: exams.endTime,
+  totalScore: exams.totalScore,
+  createdBy: exams.createdBy,
+  createdAt: exams.createdAt,
+};
+
+// --- 教师视角：获取我创建的考试，并带出关联的所有班级 ---
+export async function getExamsByTeacher(teacherId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  const rows = await db
+    .select({
+      exam: {
+        ...examColumns,
+        status: getExamStatusSql(), 
+      },
+      courseName: courses.name,
+      classId: classes.id,
+      className: classes.name,
+    })
+    .from(exams)
+    .innerJoin(courses, eq(exams.courseId, courses.id))
+    .leftJoin(examClasses, eq(exams.id, examClasses.examId))
+    .leftJoin(classes, eq(examClasses.classId, classes.id))
+    .where(eq(exams.createdBy, teacherId))
+    .orderBy(desc(exams.createdAt));
+
+  return aggregateExams(rows);
+}
+
+// --- 学生视角 ---
+export async function getExamsByStudent(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  const currentStatusSql = getExamStatusSql();
+
+  const rows = await db
+    .select({
+      exam: {
+        ...examColumns,
+        status: currentStatusSql,
+      },
+      courseName: courses.name,
+      className: classes.name,
+      classId: classes.id,
+    })
+    .from(students)
+    .innerJoin(examClasses, eq(students.classId, examClasses.classId))
+    .innerJoin(exams, eq(examClasses.examId, exams.id))
+    .leftJoin(courses, eq(exams.courseId, courses.id))
+    .leftJoin(classes, eq(students.classId, classes.id))
+    .where(
+      and(
+        eq(students.userId, userId),
+      )
+    )
+    .orderBy(desc(exams.startTime)); // 按考试时间倒序排列
+
+  return aggregateExams(rows);
+}
+
+// --- 管理员视角 ---
+export async function getExamsForAdmin() {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  const rows = await db
+    .select({
+      exam: {
+        ...examColumns,
+        status: getExamStatusSql(),
+      },
+      courseName: courses.name,
+      classId: classes.id,
+      className: classes.name,
+    })
+    .from(exams)
+    .leftJoin(courses, eq(exams.courseId, courses.id))
+    .leftJoin(examClasses, eq(exams.id, examClasses.examId))
+    .leftJoin(classes, eq(examClasses.classId, classes.id))
+    .orderBy(desc(exams.createdAt));
+
+  return aggregateExams(rows);
 }
 
 export async function getExamById(id: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const result = await db.select().from(exams).where(eq(exams.id, id)).limit(1);
-  return result[0] || null;
+  // 1. 查主表
+  const examResult = await db.select().from(exams).where(eq(exams.id, id)).limit(1);
+  if (examResult.length === 0) return null;
+
+  // 2. 查关联的班级 ID 列表
+  const classRelations = await db
+    .select({ classId: examClasses.classId })
+    .from(examClasses)
+    .where(eq(examClasses.examId, id));
+
+  return {
+    ...examResult[0],
+    classIds: classRelations.map(r => r.classId), // 给前端回填用
+  };
 }
 
-export async function createExam(data: typeof exams.$inferInsert) {
+export async function upsertExam(
+  teacherId: number, 
+  data: any, 
+  classIds: number[]
+) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  // 开启事务：确保考试主表和班级关联表同步更新
+  return await db.transaction(async (tx) => {
+    let examId = data.id;
+
+    // 1. 处理考试主表 (exams)
+    const examPayload = {
+      title: data.title,
+      description: data.description,
+      courseId: data.courseId,
+      duration: data.duration,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      totalScore: data.totalScore,
+      createdBy: teacherId,
+      // 如果是创建，status 默认为 not_started
+    };
+
+    if (examId) {
+      // --- 编辑模式 ---
+      await tx.update(exams)
+        .set(examPayload)
+        .where(and(eq(exams.id, examId), eq(exams.createdBy, teacherId)));
+      
+      // --- 同步班级关联 (核心逻辑) ---
+      // 先彻底物理删除该考试所有的旧班级关联
+      await tx.delete(examClasses).where(eq(examClasses.examId, examId));
+    } else {
+      // --- 创建模式 ---
+      const [result] = await tx.insert(exams).values(examPayload);
+      examId = result.insertId;
+    }
+
+    // 2. 统一插入最新的班级关联
+    if (classIds && classIds.length > 0) {
+      const relationValues = classIds.map((cid) => ({
+        examId: examId,
+        classId: cid,
+      }));
+      await tx.insert(examClasses).values(relationValues);
+    }
+
+    return examId;
+  });
+}
+
+// 删除考试， schema中实现了级联删除
+export async function deleteExam(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(exams).values(data);
-  return { id: Number((result as any).insertId) };
+  await db.delete(exams).where(eq(exams.id, id));
+  return { success: true };
 }
 
 // ==================== 实验管理 ====================
@@ -874,18 +1186,18 @@ export async function getAIConversationsByStudent(studentId: number) {
 }
 
 // 创建新会话
-export async function createAIConversation(data: { 
-  studentId: number; 
-  assignmentId?: number; 
-  title: string 
+export async function createAIConversation(data: {
+  studentId: number;
+  assignmentId?: number;
+  title: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
   const [result] = await db.insert(aiConversations).values(data);
-  
+
   const newId = result.insertId;
-  
+
   const newConv = await db
     .select()
     .from(aiConversations)
@@ -896,7 +1208,10 @@ export async function createAIConversation(data: {
 }
 
 // 获取会话内的消息
-export async function getAIMessagesByConversation(conversationId: number, limitCount?: number) {
+export async function getAIMessagesByConversation(
+  conversationId: number,
+  limitCount?: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   let query = db
@@ -909,12 +1224,16 @@ export async function getAIMessagesByConversation(conversationId: number, limitC
     // 如果是用于上下文，通常取最近的消息，这里逻辑根据需求可调整
     // 此处简单起见直接取全部，或根据 limitCount 截取
   }
-  
+
   return await query;
 }
 
 // 保存单条消息
-export async function saveAIMessage(conversationId: number, role: "user" | "assistant", content: string) {
+export async function saveAIMessage(
+  conversationId: number,
+  role: "user" | "assistant",
+  content: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   return await db.insert(aiMessages).values({

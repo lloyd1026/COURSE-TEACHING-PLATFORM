@@ -21,7 +21,6 @@ import AssignmentList from "./pages/teacher/AssignmentList";
 import AssignmentDetail from "./pages/teacher/AssignmentDetail";
 import QuestionBank from "./pages/teacher/QuestionBank";
 import ExamList from "./pages/teacher/ExamList";
-import ExamCreate from "./pages/teacher/ExamCreate";
 import ExamDetail from "./pages/teacher/ExamDetail";
 import KnowledgeGraph from "./pages/teacher/KnowledgeGraph";
 import ExperimentList from "./pages/teacher/ExperimentList";
@@ -57,7 +56,6 @@ function Router() {
       <Route path="/teacher/assignments/:id" component={AssignmentDetail} />
       <Route path="/teacher/questions" component={QuestionBank} />
       <Route path="/teacher/exams" component={ExamList} />
-      <Route path="/teacher/exams/create" component={ExamCreate} />
       <Route path="/teacher/exams/:id" component={ExamDetail} />
       <Route path="/teacher/knowledge-graph" component={KnowledgeGraph} />
       <Route path="/teacher/experiments" component={ExperimentList} />

@@ -173,7 +173,7 @@ export const appRouter = router({
 
         // 2. 教师：看自己教的课
         if (ctx.user.role === "teacher") {
-          return await db.getCoursesByTeacherId(ctx.user.id, input?.search);
+          return await db.getCoursesByTeacher(ctx.user.id, input?.search);
         }
 
         // 3. 学生：看自己班级的课
@@ -367,22 +367,26 @@ export const appRouter = router({
   assignments: router({
     // 获取作业列表, teacher查看自己创建的作业，学生查看自己班级的作业
     list: protectedProcedure
-    .input(z.object({
-      courseId: z.number().optional(),
-      teacherId: z.number().optional(),
-    }).optional())
-    .query(async ({ ctx, input }) => {
-      // 1. 如果是学生，直接调用连表查询
-      if (ctx.user.role === "student") {
-        return await db.getAssignmentsByStudentId(ctx.user.id, input?.courseId);
-      }
+      .input(
+        z
+          .object({
+            courseId: z.number().optional(),
+            teacherId: z.number().optional(),
+          })
+          .optional()
+      )
+      .query(async ({ ctx, input }) => {
+        // 1. 如果是学生，直接调用连表查询
+        if (ctx.user.role === "student") {
+          return await db.getAssignmentsByStudentId(
+            ctx.user.id,
+            input?.courseId
+          );
+        }
 
-      // 2. 如果是教师/管理员，调用你之前的老方法
-      return await db.getAllAssignments(
-        input?.teacherId, 
-        input?.courseId
-      );
-    }),
+        // 2. 如果是教师/管理员，调用你之前的老方法
+        return await db.getAllAssignments(input?.teacherId, input?.courseId);
+      }),
 
     // 获取作业详情
     get: protectedProcedure
@@ -436,7 +440,7 @@ export const appRouter = router({
 
   // ==================== 题库管理 ====================
   questions: router({
-    list: teacherProcedure
+    list: protectedProcedure
       .input(
         z
           .object({
@@ -446,22 +450,29 @@ export const appRouter = router({
           .optional()
       )
       .query(async ({ ctx, input }) => {
-        return await db.getQuestionsByTeacherId(
-          ctx.user.id,
-          input?.courseId,
-          input?.search
-        );
+        const { role, id: userId } = ctx.user;
+        const filters = input || {};
+
+        switch (role) {
+          case "teacher":
+            return await db.getQuestionsByTeacher(userId, filters);
+
+          case "admin":
+            return await db.getQuestionsForAdmin(filters);
+
+          case "student":
+            return await db.getQuestionsByStudent(userId, filters.courseId);
+
+          default:
+            throw new Error("未知的用户角色");
+        }
       }),
 
-    get: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        return await db.getQuestionById(input.id);
-      }),
-
-    create: teacherProcedure
+    // --- 统一 Upsert (创建或更新) ---
+    upsert: teacherProcedure
       .input(
         z.object({
+          id: z.number().optional(), // 有 ID 则更新，无 ID 则创建
           type: z.enum([
             "single_choice",
             "multiple_choice",
@@ -473,87 +484,85 @@ export const appRouter = router({
           courseId: z.number(),
           title: z.string(),
           content: z.string().optional(),
-          options: z.any().optional(),
+          options: z.any().optional(), // 接收数组，后端自动 JSON 序列化
           answer: z.string().optional(),
           analysis: z.string().optional(),
           difficulty: z.enum(["easy", "medium", "hard"]),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        return await db.createQuestion({
-          ...input,
-          createdBy: ctx.user.id, // 自动取当前登录教师的 ID，不再依赖前端传
-        });
+        return await db.upsertQuestion(ctx.user.id, input);
       }),
 
-    update: teacherProcedure
-      .input(
-        z.object({
-          id: z.number(),
-          type: z
-            .enum([
-              "single_choice",
-              "multiple_choice",
-              "fill_blank",
-              "true_false",
-              "essay",
-              "programming",
-            ])
-            .optional(),
-          courseId: z.number().optional(),
-          title: z.string().optional(),
-          content: z.string().optional(),
-          options: z.any().optional(),
-          answer: z.string().optional(),
-          analysis: z.string().optional(),
-          difficulty: z.enum(["easy", "medium", "hard"]).optional(),
-        })
-      )
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        return await db.updateQuestion(id, data);
-      }),
-
-    delete: teacherProcedure
-      .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
-        return await db.deleteQuestion(input.id);
+    // --- 批量安全删除 ---
+    // 逻辑：检查引用，有关联则归档，无关联则彻底删除
+    deleteBulk: teacherProcedure
+      .input(z.object({ ids: z.array(z.number()) }))
+      .mutation(async ({ ctx, input }) => {
+        return await db.deleteQuestionsBulk(input.ids, ctx.user.id);
       }),
   }),
 
   // ==================== 考试管理 ====================
   exams: router({
     list: protectedProcedure
-      .input(z.object({ courseId: z.number().optional() }).optional())
-      .query(async ({ input }) => {
-        return await db.getAllExams(input?.courseId);
+      .input(z.object({ search: z.string().optional() }).optional())
+      .query(async ({ ctx }) => {
+        if (ctx.user.role === "admin") {
+          return await db.getExamsForAdmin();
+        }
+        if (ctx.user.role === "teacher") {
+          return await db.getExamsByTeacher(ctx.user.id);
+        }
+        if (ctx.user.role === "student") {
+          return await db.getExamsByStudent(ctx.user.id);
+        }
+        return [];
       }),
 
+    // 2. 获取单场考试详情 (用于编辑回填)
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         return await db.getExamById(input.id);
       }),
 
-    create: protectedProcedure
+    // 3. 核心：创建与更新合一 (Upsert)
+    // 教师视角：支持同时分发给多个班级
+    upsert: teacherProcedure
       .input(
         z.object({
-          title: z.string(),
-          description: z.string().optional(),
+          id: z.number().optional(),
           courseId: z.number(),
-          classId: z.number(),
-          duration: z.number(),
+          classIds: z.array(z.number()), // 接收班级 ID 数组
+          title: z.string().min(1, "标题不能为空"),
+          description: z.string().optional(),
+          duration: z.number().min(1, "时长需大于0"),
           startTime: z.date(),
-          endTime: z.date(),
-          totalScore: z.number().optional(),
-          createdBy: z.number(),
+          totalScore: z.number().default(100),
         })
       )
+      .mutation(async ({ ctx, input }) => {
+        // 自动计算结束时间
+        const endTime = new Date(
+          input.startTime.getTime() + input.duration * 60 * 1000
+        );
+
+        const { classIds, ...examData } = input;
+
+        return await db.upsertExam(
+          ctx.user.id,
+          { ...examData, endTime },
+          classIds
+        );
+      }),
+
+    // 4. 删除考试
+    // 依靠数据库 onDelete: "cascade" 自动清理关联的 exam_classes
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
-        return await db.createExam({
-          ...input,
-          status: "not_started",
-        });
+        return await db.deleteExam(input.id);
       }),
   }),
 
@@ -608,65 +617,67 @@ export const appRouter = router({
   // ==================== AI助教 ====================
   ai: router({
     // 1. 获取会话列表
-  listConversations: protectedProcedure.query(async ({ ctx }) => {
-    return await db.getAIConversationsByStudent(ctx.user.id);
-  }),
-
-  // 2. 获取特定会话的消息详情
-  getMessages: protectedProcedure
-    .input(z.object({ conversationId: z.number() }))
-    .query(async ({ input }) => {
-      return await db.getAIMessagesByConversation(input.conversationId);
+    listConversations: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getAIConversationsByStudent(ctx.user.id);
     }),
 
-  // 3. 智能对话接口 (增强持久化逻辑)
-  chat: protectedProcedure
-    .input(
-      z.object({
-        message: z.string(),
-        conversationId: z.number().optional(),
-        assignmentId: z.number().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      let currentId = input.conversationId;
+    // 2. 获取特定会话的消息详情
+    getMessages: protectedProcedure
+      .input(z.object({ conversationId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getAIMessagesByConversation(input.conversationId);
+      }),
 
-      // 如果没有会话ID，则视为新开启的对话，创建会话记录
-      if (!currentId) {
-        const [newConv] = await db.createAIConversation({
-          studentId: ctx.user.id,
-          assignmentId: input.assignmentId,
-          title: input.message.slice(0, 30), // 取首句前30字作为标题
+    // 3. 智能对话接口 (增强持久化逻辑)
+    chat: protectedProcedure
+      .input(
+        z.object({
+          message: z.string(),
+          conversationId: z.number().optional(),
+          assignmentId: z.number().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        let currentId = input.conversationId;
+
+        // 如果没有会话ID，则视为新开启的对话，创建会话记录
+        if (!currentId) {
+          const [newConv] = await db.createAIConversation({
+            studentId: ctx.user.id,
+            assignmentId: input.assignmentId,
+            title: input.message.slice(0, 30), // 取首句前30字作为标题
+          });
+          currentId = newConv.id;
+        }
+
+        // 获取历史上下文 (最近 10 条消息) 供 AI 参考
+        const history = await db.getAIMessagesByConversation(currentId, 10);
+        const contextMessages = history.map(m => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }));
+
+        // 调用适配了硅基流动的 invokeLLM
+        const response = await invokeLLM({
+          messages: [
+            ...contextMessages,
+            { role: "user", content: input.message },
+          ],
         });
-        currentId = newConv.id;
-      }
 
-      // 获取历史上下文 (最近 10 条消息) 供 AI 参考
-      const history = await db.getAIMessagesByConversation(currentId, 10);
-      const contextMessages = history.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }));
+        const reply =
+          response.choices[0]?.message?.content ||
+          "抱歉，我目前无法处理这个请求。";
 
-      // 调用适配了硅基流动的 invokeLLM
-      const response = await invokeLLM({
-        messages: [
-          ...contextMessages,
-          { role: "user", content: input.message },
-        ],
-      });
+        // 持久化：存入数据库
+        await db.saveAIMessage(currentId, "user", input.message);
+        await db.saveAIMessage(currentId, "assistant", reply);
 
-      const reply = response.choices[0]?.message?.content || "抱歉，我目前无法处理这个请求。";
-
-      // 持久化：存入数据库
-      await db.saveAIMessage(currentId, "user", input.message);
-      await db.saveAIMessage(currentId, "assistant", reply);
-
-      return {
-        reply,
-        conversationId: currentId,
-      };
-    }),
+        return {
+          reply,
+          conversationId: currentId,
+        };
+      }),
   }),
 });
 

@@ -1,0 +1,1 @@
+ALTER TABLE `questions` ADD `status` enum('active','archived','deleted') DEFAULT 'active' NOT NULL;

@@ -135,6 +135,18 @@ export const assignments = mysqlTable("assignments", {
 });
 
 /**
+ * 作业题目关联表 (新增)
+ */
+export const assignmentQuestions = mysqlTable("assignmentQuestions", {
+  id: int("id").autoincrement().primaryKey(),
+  assignmentId: int("assignmentId").notNull(),
+  questionId: int("questionId").notNull(),
+  score: int("score").default(1),
+  questionOrder: int("questionOrder"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/**
  * 作业提交表
  */
 export const assignmentSubmissions = mysqlTable("assignmentSubmissions", {
@@ -169,6 +181,7 @@ export const questions = mysqlTable("questions", {
   createdBy: int("createdBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  status: mysqlEnum("status", ["active", "archived", "deleted"]).default("active").notNull(),
 });
 
 /**
@@ -177,17 +190,23 @@ export const questions = mysqlTable("questions", {
 export const exams = mysqlTable("exams", {
   id: int("id").autoincrement().primaryKey(),
   courseId: int("courseId").notNull(),
-  classId: int("classId").notNull(),
   title: varchar("title", { length: 200 }).notNull(),
   description: text("description"),
   duration: int("duration").notNull(),
   startTime: timestamp("startTime").notNull(),
   endTime: timestamp("endTime").notNull(),
-  status: mysqlEnum("status", ["not_started", "in_progress", "ended"]).default("not_started").notNull(),
   totalScore: int("totalScore").default(100),
   createdBy: int("createdBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// 考试班级关联表
+export const examClasses = mysqlTable("exam_classes", {
+  id: int("id").autoincrement().primaryKey(),
+  examId: int("examId").notNull().references(() => exams.id, { onDelete: "cascade" }), // 级联删除
+  classId: int("classId").notNull(),  // eg.3班没了，1、2班还在
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 /**
