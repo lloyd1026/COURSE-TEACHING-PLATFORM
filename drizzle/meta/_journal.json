@@ -85,6 +85,13 @@
       "when": 1767519412562,
       "tag": "0011_boring_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1767531282261,
+      "tag": "0012_cuddly_risque",
+      "breakpoints": true
     }
   ]
 }

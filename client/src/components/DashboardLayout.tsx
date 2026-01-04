@@ -61,7 +61,7 @@ const teacherMenuItems = [
   { icon: FileText, label: "作业管理", path: "/teacher/assignments" },
   { icon: Library, label: "题库管理", path: "/teacher/questions" },
   { icon: ClipboardList, label: "考试管理", path: "/teacher/exams" },
-  { icon: Network, label: "知识图谱", path: "/teacher/knowledge" },
+  { icon: Network, label: "知识图谱", path: "/teacher/knowledge-graph" },
   { icon: FlaskConical, label: "实验管理", path: "/teacher/experiments" },
 ];
 
@@ -72,6 +72,7 @@ const studentMenuItems = [
   { icon: FileText, label: "我的作业", path: "/student/assignments" },
   { icon: ClipboardList, label: "我的考试", path: "/student/exams" },
   { icon: FlaskConical, label: "我的实验", path: "/student/experiments" },
+  { icon: Network, label: "知识图谱", path: "/student/knowledge-graph" },
   { icon: Brain, label: "AI助教", path: "/student/ai-assistant" },
 ];
 

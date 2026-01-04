@@ -12,15 +12,31 @@ import { Search, FlaskConical, Loader2 } from "lucide-react";
 export default function StudentExperimentList() {
   const [search, setSearch] = useState("");
 
-  const { data: experiments, isLoading } = trpc.experiments.list.useQuery();
+  // Use listWithStatus to get submission status
+  const { data: experiments, isLoading } = trpc.experiments.listWithStatus.useQuery();
 
-  const getStatusBadge = (status: string, dueDate: Date) => {
+  const getStatusBadge = (submissionStatus: string | null, dueDate: Date, evaluationResult: any) => {
     const now = new Date();
     const due = new Date(dueDate);
-    if (status === 'submitted') {
-      return <Badge className="bg-green-100 text-green-800">已提交</Badge>;
+    const isOverdue = due < now;
+
+    if (submissionStatus === 'evaluated' || submissionStatus === 'graded') {
+      return (
+        <div className="flex items-center gap-1">
+          <Badge className="bg-green-100 text-green-800">已评分</Badge>
+          {evaluationResult?.manualScore !== undefined && (
+            <Badge variant="outline" className="bg-green-50 text-green-700">{evaluationResult.manualScore}分</Badge>
+          )}
+        </div>
+      );
     }
-    if (due < now) {
+    if (submissionStatus === 'submitted') {
+      return <Badge className="bg-blue-100 text-blue-800">已提交</Badge>;
+    }
+    if (submissionStatus === 'draft') {
+      return <Badge variant="outline" className="text-orange-600 border-orange-300">草稿</Badge>;
+    }
+    if (isOverdue) {
       return <Badge variant="destructive">已截止</Badge>;
     }
     return <Badge variant="outline">待提交</Badge>;
@@ -71,7 +87,7 @@ export default function StudentExperimentList() {
                     <TableRow key={exp.id}>
                       <TableCell className="font-medium">{exp.title}</TableCell>
                       <TableCell>{new Date(exp.dueDate).toLocaleString()}</TableCell>
-                      <TableCell>{getStatusBadge(exp.status || 'pending', exp.dueDate)}</TableCell>
+                      <TableCell>{getStatusBadge(exp.submissionStatus, exp.dueDate, exp.evaluationResult)}</TableCell>
                       <TableCell>
                         <Link href={`/student/experiments/${exp.id}`}>
                           <Button variant="ghost" size="sm">查看</Button>

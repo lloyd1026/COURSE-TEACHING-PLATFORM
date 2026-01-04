@@ -1,8 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 import { ENV } from './_core/env';
 
-const supabase = createClient(ENV.supabaseUrl, ENV.supabaseServiceRoleKey);
-const bucketName = ENV.supabaseStorageBucket;
+let supabase: ReturnType<typeof createClient> | null = null;
+try {
+  if (ENV.supabaseUrl && ENV.supabaseServiceRoleKey) {
+    supabase = createClient(ENV.supabaseUrl, ENV.supabaseServiceRoleKey);
+  } else {
+    console.warn("[Storage] Supabase keys missing, storage disabled.");
+  }
+} catch (e) {
+  console.warn("[Storage] Failed to initialize Supabase client:", e);
+}
+
+const bucketName = ENV.supabaseStorageBucket || "avatars";
 
 /**
  * 将文件上传到 Supabase Storage
@@ -15,7 +25,8 @@ export async function storagePut(
   data: Buffer | Uint8Array | string,
   contentType = "image/jpeg"
 ): Promise<{ key: string; url: string }> {
-  
+  if (!supabase) throw new Error("Supabase client not initialized (missing credentials)");
+
   // 1. 上传文件
   const { data: uploadData, error } = await supabase.storage
     .from(bucketName)
@@ -33,9 +44,9 @@ export async function storagePut(
     .from(bucketName)
     .getPublicUrl(relKey);
 
-  return { 
-    key: relKey, 
-    url: publicUrl 
+  return {
+    key: relKey,
+    url: publicUrl
   };
 }
 
@@ -43,6 +54,7 @@ export async function storagePut(
  * 获取文件 URL (用于兼容旧接口)
  */
 export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
+  if (!supabase) throw new Error("Supabase client not initialized");
   const { data: { publicUrl } } = supabase.storage
     .from(bucketName)
     .getPublicUrl(relKey);
@@ -55,6 +67,7 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
  * @param relKey 文件路径 (例如: 'avatars/user-1-123456.jpg')
  */
 export async function storageDelete(relKey: string): Promise<void> {
+  if (!supabase) return; // Silent fail or throw? Log warning.
   // 提取 key，去掉可能的完整 URL 前缀，只保留 bucket 后的路径
   // 如果存储的是完整 URL，需要解析出 path 部分
   let path = relKey;

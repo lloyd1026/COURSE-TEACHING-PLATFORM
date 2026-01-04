@@ -1,29 +1,55 @@
 import { useParams, Link } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { 
-  ArrowLeft, FileText, Users, Clock, Loader2, 
-  BookOpen, Layers, ChevronRight, CheckCircle, 
-  Calendar, Info, Star
+import { toast } from "sonner";
+import {
+  ArrowLeft, FileText, Users, Clock, Loader2,
+  BookOpen, Layers, ChevronRight, CheckCircle,
+  Calendar, Info, Star, XCircle
 } from "lucide-react";
+import { KnowledgePointManager } from "@/components/KnowledgePointManager";
 
 export default function AssignmentDetail() {
   const { id } = useParams<{ id: string }>();
   const assignmentId = parseInt(id || "0");
-  
+
   // 1. 获取作业基础信息 (题目、班级、基本设置)
-  const { data: assignment, isLoading: isAssignmentLoading } = trpc.assignments.get.useQuery({ 
-    id: assignmentId 
+  const { data: assignment, isLoading: isAssignmentLoading } = trpc.assignments.get.useQuery({
+    id: assignmentId
   });
 
-  // 2. ✅ 获取真实的提交统计数据 (调用刚才新建的接口)
+  // 2. 获取真实的提交统计数据
   const { data: realStats, isLoading: isStatsLoading } = trpc.submissions.getAssignmentStats.useQuery(
     { assignmentId },
     { enabled: !!assignmentId, refetchInterval: 5000 } // 每5秒自动刷新一次数据
   );
+
+  // 3. 获取关联知识点 (From HEAD)
+  const { data: linkedKPs, refetch: refetchLinkedKPs } = trpc.knowledge.getLinkedPoints.useQuery(
+    { entityType: "assignment", entityId: assignmentId },
+    { enabled: !!assignmentId }
+  );
+
+  const linkPointMutation = trpc.knowledge.linkPoint.useMutation({
+    onSuccess: () => {
+      toast.success("关联成功");
+      refetchLinkedKPs();
+    },
+    onError: (err) => toast.error(err.message)
+  });
+
+  const unlinkPointMutation = trpc.knowledge.unlinkPoint.useMutation({
+    onSuccess: () => {
+      toast.success("已取消关联");
+      refetchLinkedKPs();
+    },
+    onError: (err) => toast.error(err.message)
+  });
+
+  const pointOperationsLoading = linkPointMutation.isPending || unlinkPointMutation.isPending;
 
   // 处理统计数据的默认状态
   const stats = realStats || {
@@ -41,20 +67,22 @@ export default function AssignmentDetail() {
 
   if (isAssignmentLoading || isStatsLoading) {
     return (
-      <div className="h-screen flex items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-zinc-300" />
-      </div>
+      <DashboardLayout>
+        <div className="h-screen flex items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-zinc-300" />
+        </div>
+      </DashboardLayout>
     );
   }
 
-  if (!assignment) return <div className="p-12 text-center text-zinc-400">作业不存在</div>;
+  if (!assignment) return <DashboardLayout><div className="p-12 text-center text-zinc-400">作业不存在</div></DashboardLayout>;
 
   const currentStatus = STATUS_MAP[assignment.status] || STATUS_MAP.draft;
 
   return (
     <DashboardLayout>
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-8 text-zinc-900">
-        
+
         {/* 页眉: 返回与核心信息 */}
         <header className="flex justify-between items-start">
           <div className="flex items-center gap-6">
@@ -76,47 +104,47 @@ export default function AssignmentDetail() {
             </div>
           </div>
           <div className="flex gap-3">
-             <Link href={`/teacher/assignments/${assignmentId}/grading`}>
-                <Button className="rounded-xl bg-zinc-900 text-white font-bold text-xs h-10 px-6">
-                  进入批阅模式
-                </Button>
-             </Link>
+            <Link href={`/teacher/assignments/${assignmentId}/grading`}>
+              <Button className="rounded-xl bg-zinc-900 text-white font-bold text-xs h-10 px-6">
+                进入批阅模式
+              </Button>
+            </Link>
           </div>
         </header>
 
-        {/* 统计看板: 现在对接了真实数据 */}
+        {/* 统计看板 */}
         <div className="grid md:grid-cols-4 gap-6">
-          <StatCard 
-            icon={<Star className="text-amber-500" />} 
-            label="作业总分" 
-            value={(assignment as any).questions?.reduce((acc: number, q: any) => acc + (q.score || 0), 0) || 0} 
-            unit="分" 
+          <StatCard
+            icon={<Star className="text-amber-500" />}
+            label="作业总分"
+            value={(assignment as any).questions?.reduce((acc: number, q: any) => acc + (q.score || 0), 0) || 0}
+            unit="分"
           />
-          <StatCard 
-            icon={<Layers className="text-blue-500" />} 
-            label="题目数量" 
-            value={(assignment as any).questions?.length || 0} 
-            unit="道题" 
+          <StatCard
+            icon={<Layers className="text-blue-500" />}
+            label="题目数量"
+            value={(assignment as any).questions?.length || 0}
+            unit="道题"
           />
-          <StatCard 
-            icon={<Users className="text-emerald-500" />} 
-            label="已提交人数" 
-            value={stats.submitted} 
-            unit={`/ ${stats.totalStudents} 人`} 
+          <StatCard
+            icon={<Users className="text-emerald-500" />}
+            label="已提交人数"
+            value={stats.submitted}
+            unit={`/ ${stats.totalStudents} 人`}
           />
-          <StatCard 
-            icon={<Clock className="text-rose-500" />} 
-            label="待批改份数" 
-            value={stats.pending} 
-            unit="份" 
+          <StatCard
+            icon={<Clock className="text-rose-500" />}
+            label="待批改份数"
+            value={stats.pending}
+            unit="份"
           />
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8">
-          
+
           {/* 左侧：题目详情 & 任务描述 */}
           <div className="lg:col-span-2 space-y-8">
-            
+
             {/* 任务要求 */}
             <section className="bg-white rounded-[2.5rem] p-8 border border-zinc-100 shadow-sm">
               <h3 className="text-[10px] font-black uppercase text-zinc-400 tracking-widest mb-4 flex items-center gap-2">
@@ -164,7 +192,7 @@ export default function AssignmentDetail() {
             </section>
           </div>
 
-          {/* 右侧：分发状态 & 时间 */}
+          {/* 右侧：分发状态 & 时间 & 知识点 */}
           <div className="space-y-6">
             <Card className="rounded-[2.5rem] border-none bg-zinc-900 text-white p-2 shadow-2xl">
               <CardHeader className="pb-4">
@@ -183,30 +211,72 @@ export default function AssignmentDetail() {
                   </p>
                 </div>
                 <div className="px-4">
-                   <div className="flex justify-between text-[10px] font-bold text-white/40 mb-2 uppercase tracking-widest">
-                      <span>分发班级</span>
-                      <span>{(assignment as any).classIds?.length || 0} 个班级</span>
-                   </div>
-                   <div className="flex flex-wrap gap-2">
-                      {(assignment as any).targetClasses?.map((c: any) => (
-                        <Badge key={c.id} className="bg-white/20 hover:bg-white/30 text-white border-none rounded-lg px-2 text-[10px]">
-                          {c.name}
-                        </Badge>
-                      ))}
-                   </div>
+                  <div className="flex justify-between text-[10px] font-bold text-white/40 mb-2 uppercase tracking-widest">
+                    <span>分发班级</span>
+                    <span>{(assignment as any).classIds?.length || 0} 个班级</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(assignment as any).targetClasses?.map((c: any) => (
+                      <Badge key={c.id} className="bg-white/20 hover:bg-white/30 text-white border-none rounded-lg px-2 text-[10px]">
+                        {c.name}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
             <div className="p-8 bg-emerald-50 rounded-[2.5rem] border border-emerald-100">
-               <CheckCircle className="h-6 w-6 text-emerald-500 mb-3" />
-               <h4 className="text-sm font-bold text-emerald-900">自动判分已开启</h4>
-               <p className="text-[11px] text-emerald-600/70 mt-1">
-                 客观题（单选/判断）将在提交后由系统计算，老师仅需批阅简答题。
-               </p>
+              <CheckCircle className="h-6 w-6 text-emerald-500 mb-3" />
+              <h4 className="text-sm font-bold text-emerald-900">自动判分已开启</h4>
+              <p className="text-[11px] text-emerald-600/70 mt-1">
+                客观题（单选/判断）将在提交后由系统计算，老师仅需批阅简答题。
+              </p>
             </div>
-          </div>
 
+            {/* 关联知识点 (Merged from HEAD) */}
+            <Card className="rounded-[2.5rem] border border-zinc-100 shadow-sm p-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                  <Layers className="h-4 w-4" /> 关联知识点
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-2">
+                <KnowledgePointManager
+                  courseId={assignment.courseId}
+                  linkedKPs={linkedKPs || []}
+                  onLink={(kpId) => linkPointMutation.mutate({
+                    knowledgePointId: kpId,
+                    assignmentId: assignment.id
+                  })}
+                  onUnlink={(relId) => unlinkPointMutation.mutate({ relationId: relId })}
+                  isLoading={pointOperationsLoading}
+                />
+
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {!linkedKPs || linkedKPs.length === 0 ? (
+                    <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest pl-2">暂未关联课程知识点</p>
+                  ) : (
+                    linkedKPs.map((kp: any) => (
+                      <Badge key={kp.id} variant="secondary" className="px-2 py-1 bg-zinc-50 hover:bg-zinc-100 gap-1 text-[10px] rounded-lg">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                          {kp.name}
+                        </div>
+                        <button
+                          className="ml-1 text-zinc-300 hover:text-red-500 transition-colors"
+                          onClick={() => unlinkPointMutation.mutate({ relationId: kp.relationId })}
+                        >
+                          <XCircle className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+          </div>
         </div>
       </div>
     </DashboardLayout>
