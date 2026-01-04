@@ -10,14 +10,15 @@ import ClassForm from "@/components/teacher/classes/ClassForm";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ConfirmDeleteDialog } from "@/components/common/ConfirmDeleteDialog";
 import { Pagination } from "@/components/common/Pagination";
-import { FilterSearch, FilterSlider } from "@/components/common/FilterGroup";
+import { FilterSlider } from "@/components/common/FilterGroup";
+import { SearchFilterBar } from "@/components/common/SearchFilterBar"; // 1. 引入组件
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { generateGrades } from "@/lib/configs";
 
 export default function ClassManage() {
   const [, setLocation] = useLocation();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(""); // 此时 search 仅在确认后更新
   const [gradeFilter, setGradeFilter] = useState<number | "all">("all");
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
@@ -40,9 +41,11 @@ export default function ClassManage() {
     onError: (err) => toast.error(err.message)
   });
 
+  // 2. 筛选逻辑：search 现在是点击确认后才变化，所以这里不再会随着打字而高频触发
   const filteredItems = useMemo(() => {
     return (classes || []).filter(c => {
-      const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
+      const matchSearch = !search || 
+                          c.name.toLowerCase().includes(search.toLowerCase()) ||
                           c.major?.toLowerCase().includes(search.toLowerCase());
       const matchGrade = gradeFilter === "all" || c.grade === gradeFilter;
       return matchSearch && matchGrade;
@@ -82,11 +85,10 @@ export default function ClassManage() {
           </Button>
         </header>
 
-        {/* --- 使用封装后的 FilterGroup 组件 --- */}
         <div className="flex-shrink-0 space-y-6 mb-8">
-          <FilterSearch 
-            value={search} 
-            onChange={setSearch} 
+          {/* 3. 替换掉旧的 FilterSearch */}
+          <SearchFilterBar 
+            onSearch={setSearch} 
             placeholder="搜索班级或专业名称..." 
           />
 

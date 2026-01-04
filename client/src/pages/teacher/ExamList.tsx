@@ -22,10 +22,10 @@ import { Link } from "wouter";
 import { ConfirmDeleteDialog } from "@/components/common/ConfirmDeleteDialog";
 import { Pagination } from "@/components/common/Pagination";
 import {
-  FilterSearch,
   FilterTabs,
   FilterSlider,
 } from "@/components/common/FilterGroup";
+import { SearchFilterBar } from "@/components/common/SearchFilterBar"; // 1. 引入统一搜索框
 import { ExamForm } from "@/components/teacher/exams/ExamForm";
 
 export default function ExamList() {
@@ -58,10 +58,10 @@ export default function ExamList() {
     return (course as any)?.linkedClasses || [];
   }, [courseFilter, teacherCourses]);
 
-  // --- 3. 筛选逻辑 ---
+  // --- 3. 筛选逻辑 (search 确认后再触发) ---
   const filteredExams = useMemo(() => {
     return (exams || []).filter((e: any) => {
-      const matchSearch = e.title.toLowerCase().includes(search.toLowerCase());
+      const matchSearch = !search || e.title.toLowerCase().includes(search.toLowerCase());
       const matchStatus = statusFilter === "all" || e.status === statusFilter;
       const matchCourse = courseFilter === "all" || e.courseId === courseFilter;
 
@@ -150,25 +150,23 @@ export default function ExamList() {
           </Button>
         </header>
 
-        {/* 2. 复合筛选工具栏（垂直堆叠结构） */}
-        <div className="flex-shrink-0 space-y-5 mb-10">
-          <div className="flex gap-4">
-            <FilterSearch
-              value={search}
-              onChange={setSearch}
-              placeholder="搜索考试标题..."
-            />
-            <FilterTabs
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={Object.entries(STATUS_CONFIG).map(([key, cfg]: any) => ({
-                label: cfg.label,
-                value: key,
-              }))}
-            />
-          </div>
+        {/* 筛选区域：搜索框在上，标签在下 */}
+        <div className="flex-shrink-0 space-y-6 mb-10">
+          <SearchFilterBar 
+            onSearch={setSearch} 
+            placeholder="搜索考试标题..." 
+          />
 
-          {/* 一级：课程筛选 */}
+          <FilterTabs
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={Object.entries(STATUS_CONFIG).map(([key, cfg]: any) => ({
+              label: cfg.label,
+              value: key,
+            }))}
+          />
+
+          {/* 课程筛选 */}
           <FilterSlider
             label="授课课程"
             searchValue={courseSearch}
@@ -186,7 +184,7 @@ export default function ExamList() {
             ]}
           />
 
-          {/* 二级：班级筛选（仅在选中课程后显示，位于下方） */}
+          {/* 班级筛选 */}
           {courseFilter !== "all" && (
             <div className="animate-in slide-in-from-top-2 duration-300">
               <FilterSlider
@@ -209,7 +207,7 @@ export default function ExamList() {
           )}
         </div>
 
-        {/* 考试网格列表 */}
+        {/* 列表内容 */}
         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-10">
             {pagedExams.map((exam: any) => {
@@ -227,12 +225,11 @@ export default function ExamList() {
                       <status.icon className="h-8 w-8" />
                     </div>
                     <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                      {/* 详情页入口按钮 */}
-             <Link href={`/teacher/exams/${exam.id}`}>
-                <Button variant="ghost" size="icon" className="h-11 w-11 rounded-2xl bg-blue-50 text-blue-500 hover:bg-blue-500 hover:text-white transition-all shadow-sm">
-                  <ChevronRight className="h-5 w-5" />
-                </Button>
-             </Link>
+                      <Link href={`/teacher/exams/${exam.id}`}>
+                        <Button variant="ghost" size="icon" className="h-11 w-11 rounded-2xl bg-blue-50 text-blue-500 hover:bg-blue-500 hover:text-white transition-all shadow-sm">
+                          <ChevronRight className="h-5 w-5" />
+                        </Button>
+                      </Link>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -263,7 +260,6 @@ export default function ExamList() {
                       {exam.title}
                     </h3>
 
-                    {/* 班级 Badge 聚合展示 */}
                     <div className="flex flex-wrap gap-1.5">
                       {exam.targetClasses?.map((cls: any) => (
                         <span
@@ -310,7 +306,6 @@ export default function ExamList() {
           )}
         </div>
 
-        {/* 分页 */}
         <div className="flex-none mt-6">
           <Pagination
             currentPage={currentPage}

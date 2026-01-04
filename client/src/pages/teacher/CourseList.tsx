@@ -11,17 +11,17 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-// 1. 引入通用组件
+// 引入组件
 import { ConfirmDeleteDialog } from "@/components/common/ConfirmDeleteDialog";
 import { Pagination } from "@/components/common/Pagination";
-import { FilterSearch, FilterTabs } from "@/components/common/FilterGroup";
+import { FilterTabs } from "@/components/common/FilterGroup";
+import { SearchFilterBar } from "@/components/common/SearchFilterBar";
 
 export default function CourseList() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all"); // 预留状态筛选
+  const [statusFilter, setStatusFilter] = useState("all");
 
-  // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 8;
 
@@ -41,23 +41,21 @@ export default function CourseList() {
     onError: err => toast.error(err.message),
   });
 
-  // 筛选逻辑
   const filteredCourses = useMemo(() => {
     return (courses || []).filter(c => {
-      const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
+      const matchSearch = !search || 
+                          c.name.toLowerCase().includes(search.toLowerCase()) ||
                           c.code.toLowerCase().includes(search.toLowerCase());
       const matchStatus = statusFilter === "all" || c.status === statusFilter;
       return matchSearch && matchStatus;
     });
   }, [courses, search, statusFilter]);
 
-  // 分页切片
   const pagedCourses = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return filteredCourses.slice(start, start + pageSize);
   }, [filteredCourses, currentPage]);
 
-  // 筛选条件变化重置页码
   useEffect(() => {
     setCurrentPage(1);
   }, [search, statusFilter]);
@@ -89,13 +87,13 @@ export default function CourseList() {
           </Button>
         </header>
 
-        {/* 2. 使用封装后的 FilterSearch 和 FilterTabs */}
-        <div className="flex-shrink-0 flex items-center gap-4 mb-8">
-          <FilterSearch 
-            value={search} 
-            onChange={setSearch} 
+        {/* 筛选区域：搜索框在上，标签在下 */}
+        <div className="flex-shrink-0 space-y-6 mb-8">
+          <SearchFilterBar 
+            onSearch={setSearch} 
             placeholder="搜索课程名称或代码..." 
           />
+          
           <FilterTabs 
             value={statusFilter}
             onChange={setStatusFilter}
@@ -160,7 +158,6 @@ export default function CourseList() {
         </div>
       </div>
 
-      {/* 弹窗部分 */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-4xl p-0 rounded-[2.5rem] overflow-hidden border-white/60 bg-white/80 backdrop-blur-2xl h-[90vh] focus:outline-none shadow-2xl">
           <div className="h-full overflow-y-auto p-10 custom-scrollbar">

@@ -117,13 +117,10 @@ export const knowledgePoints = mysqlTable("knowledgePoints", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
-/**
- * 作业表
- */
+// 作业表
 export const assignments = mysqlTable("assignments", {
   id: int("id").autoincrement().primaryKey(),
   courseId: int("courseId").notNull(),
-  classId: int("classId").notNull(),
   title: varchar("title", { length: 200 }).notNull(),
   description: text("description"),
   requirements: text("requirements"),
@@ -134,35 +131,22 @@ export const assignments = mysqlTable("assignments", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
-/**
- * 作业题目关联表 (新增)
- */
-export const assignmentQuestions = mysqlTable("assignmentQuestions", {
+// 作业班级关联表
+export const assignmentClasses = mysqlTable("assignment_classes", {
   id: int("id").autoincrement().primaryKey(),
-  assignmentId: int("assignmentId").notNull(),
-  questionId: int("questionId").notNull(),
-  score: int("score").default(1),
-  questionOrder: int("questionOrder"),
+  assignmentId: int("assignmentId").notNull().references(() => assignments.id, { onDelete: "cascade" }),
+  classId: int("classId").notNull(), 
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-/**
- * 作业提交表
- */
-export const assignmentSubmissions = mysqlTable("assignmentSubmissions", {
+// 作业题目关联表  删除作业时，自动删除关联的题目映射
+export const assignmentQuestions = mysqlTable("assignmentQuestions", {
   id: int("id").autoincrement().primaryKey(),
-  assignmentId: int("assignmentId").notNull(),
-  studentId: int("studentId").notNull(),
-  content: text("content"),
-  fileUrl: text("fileUrl"),
-  submittedAt: timestamp("submittedAt"),
-  score: decimal("score", { precision: 5, scale: 2 }),
-  feedback: text("feedback"),
-  gradedAt: timestamp("gradedAt"),
-  gradedBy: int("gradedBy"),
-  status: mysqlEnum("status", ["not_submitted", "submitted", "graded"]).default("not_submitted").notNull(),
+  assignmentId: int("assignmentId").notNull().references(() => assignments.id, { onDelete: "cascade" }),
+  questionId: int("questionId").notNull().references(() => questions.id),
+  score: int("score").default(1),
+  questionOrder: int("questionOrder"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 /**
@@ -184,9 +168,7 @@ export const questions = mysqlTable("questions", {
   status: mysqlEnum("status", ["active", "archived", "deleted"]).default("active").notNull(),
 });
 
-/**
- * 考试表
- */
+// 考试表
 export const exams = mysqlTable("exams", {
   id: int("id").autoincrement().primaryKey(),
   courseId: int("courseId").notNull(),
@@ -209,42 +191,55 @@ export const examClasses = mysqlTable("exam_classes", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-/**
- * 考试题目关联表
- */
+// 考试题目关联表 删除考试时，自动删除关联的题目映射
 export const examQuestions = mysqlTable("examQuestions", {
   id: int("id").autoincrement().primaryKey(),
-  examId: int("examId").notNull(),
-  questionId: int("questionId").notNull(),
+  examId: int("examId").notNull().references(() => exams.id, { onDelete: "cascade" }),
+  questionId: int("questionId").notNull().references(() => questions.id),
   score: int("score").default(1),
   questionOrder: int("questionOrder"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 /**
- * 考试答卷表
+ * 通用提交主表 (合并了原有的 assignmentSubmissions, examAnswers)
  */
-export const examAnswers = mysqlTable("examAnswers", {
+export const submissions = mysqlTable("submissions", {
   id: int("id").autoincrement().primaryKey(),
-  examId: int("examId").notNull(),
+  // 关联 ID：可以是 assignmentId 或 examId
+  sourceId: int("sourceId").notNull(), 
+  // 来源类型：区分是作业还是考试
+  sourceType: mysqlEnum("sourceType", ["assignment", "exam", "experiment"]).notNull(),
   studentId: int("studentId").notNull(),
-  submittedAt: timestamp("submittedAt"),
-  score: decimal("score", { precision: 5, scale: 2 }),
+  
   status: mysqlEnum("status", ["in_progress", "submitted", "graded"]).default("in_progress").notNull(),
+  
+  // 汇总数据
+  totalScore: decimal("totalScore", { precision: 5, scale: 2 }),
+  globalFeedback: text("globalFeedback"), // 老师的总评
+  
+  submittedAt: timestamp("submittedAt"),
+  gradedAt: timestamp("gradedAt"),
+  gradedBy: int("gradedBy"),
+  
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 /**
- * 考试答题详情表
+ * 通用答题详情表 (合并了原有的 examAnswerDetails, assignmentAnswerDetails)
+ * 无论作业还是考试，只要涉及题库，答案全在这里
  */
-export const examAnswerDetails = mysqlTable("examAnswerDetails", {
+export const submissionDetails = mysqlTable("submissionDetails", {
   id: int("id").autoincrement().primaryKey(),
-  examAnswerId: int("examAnswerId").notNull(),
+  submissionId: int("submissionId").notNull().references(() => submissions.id, { onDelete: "cascade" }),
   questionId: int("questionId").notNull(),
-  studentAnswer: text("studentAnswer"),
-  isCorrect: boolean("isCorrect"),
-  score: decimal("score", { precision: 5, scale: 2 }),
+  
+  studentAnswer: text("studentAnswer"), // 学生答案（文本或 JSON 字符串）
+  isCorrect: boolean("isCorrect"),      // 客观题自动判分结果
+  score: decimal("score", { precision: 5, scale: 2 }), // 该题得分
+  feedback: text("feedback"),           // 老师针对单题的批注
+  
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -334,10 +329,8 @@ export type Student = typeof students.$inferSelect;
 export type Class = typeof classes.$inferSelect;
 export type Course = typeof courses.$inferSelect;
 export type Assignment = typeof assignments.$inferSelect;
-export type AssignmentSubmission = typeof assignmentSubmissions.$inferSelect;
 export type Question = typeof questions.$inferSelect;
 export type Exam = typeof exams.$inferSelect;
-export type ExamAnswer = typeof examAnswers.$inferSelect;
 export type Experiment = typeof experiments.$inferSelect;
 export type ExperimentSubmission = typeof experimentSubmissions.$inferSelect;
 export type KnowledgePoint = typeof knowledgePoints.$inferSelect;

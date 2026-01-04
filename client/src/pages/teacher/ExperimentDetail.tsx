@@ -361,7 +361,7 @@ export default function TeacherExperimentDetail() {
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         {/* AI Score Reference */}
-                        {detailSubmission?.evaluationResult && (detailSubmission.evaluationResult as any).aiScore !== undefined && (
+                        {!!detailSubmission?.evaluationResult && (detailSubmission.evaluationResult as any).aiScore !== undefined && (
                             <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
                                 <div className="flex items-center justify-between mb-2">
                                     <span className="text-sm font-medium text-blue-700 dark:text-blue-300">AI 评分参考</span>
