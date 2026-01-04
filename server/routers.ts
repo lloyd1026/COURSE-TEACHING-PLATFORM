@@ -501,6 +501,27 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         return await db.deleteQuestionsBulk(input.ids, ctx.user.id);
       }),
+
+    // --- 批量安全删除 ---
+    import: teacherProcedure
+      .input(
+        z.object({
+          questions: z.array(
+            z.object({
+              type: z.string(),
+              courseId: z.number(),
+              content: z.string(),
+              options: z.any().optional(),
+              answer: z.string(),
+              analysis: z.string().optional(),
+              difficulty: z.string().optional(),
+            })
+          ),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return await db.importQuestionsBulk(ctx.user.id, input.questions);
+      }),
   }),
 
   // ==================== 考试管理 ====================

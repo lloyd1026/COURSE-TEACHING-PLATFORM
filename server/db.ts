@@ -1,4 +1,4 @@
-import { eq, desc, and, like, or, inArray, asc, sql } from "drizzle-orm";
+import { eq, desc, and, like, or, inArray, asc, sql, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -729,7 +729,7 @@ export async function deleteAssignment(id: number) {
 
 // ==================== 题库管理 ====================
 
-// --- 教师视角：管理我创建的题目 ---
+// --- 教师视角：管理我创建的题目 (模版)---
 export async function getQuestionsByTeacher(
   teacherId: number,
   filters: { courseId?: number; search?: string }
@@ -743,12 +743,8 @@ export async function getQuestionsByTeacher(
 
   return await db
     .select({
-      id: questions.id,
-      type: questions.type,
-      content: questions.content,
-      difficulty: questions.difficulty,
+      ...getTableColumns(questions),
       courseName: courses.name,
-      createdAt: questions.createdAt,
     })
     .from(questions)
     .leftJoin(courses, eq(questions.courseId, courses.id))
@@ -842,7 +838,7 @@ export async function upsertQuestion(teacherId: number, data: any) {
   }
 }
 
-// 安全删除题目（可批量）
+// 安全删除题目
 // 规则：
 // 1. 先检查题目是否被任何考试或作业引用过
 // 2. 如果有引用，执行“软删除”，标记为归档（archived）
@@ -895,6 +891,46 @@ export async function deleteQuestionsBulk(ids: number[], teacherId: number) {
     ...results,
     message: `操作完成：${results.deleted} 题已彻底删除，${results.archived} 题因有关联而已转入归档${results.failed > 0 ? `，${results.failed} 题操作失败` : ''}。`
   };
+}
+
+/**
+ * 批量导入题目
+ */
+export async function importQuestionsBulk(teacherId: number, questionsData: any[]) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
+  try {
+    return await db.transaction(async (tx) => {
+      const values = questionsData.map((q, index) => {
+        // 验证必填字段
+        if (!q.content || !q.type || !q.courseId) {
+          throw new Error(`第 ${index + 1} 条数据缺少必填项 (内容/题型/课程)`);
+        }
+        
+        return {
+          courseId: q.courseId,
+          type: q.type,
+          title: q.title || String(q.content).substring(0, 50),
+          content: q.content,
+          options: q.options ? JSON.stringify(q.options) : null,
+          answer: String(q.answer || ""),
+          analysis: q.analysis || "",
+          difficulty: q.difficulty || "medium",
+          createdBy: teacherId,
+          status: "active" as const
+        };
+      });
+
+      await tx.insert(questions).values(values);
+      return { success: true, count: values.length, message: `成功导入 ${values.length} 道题目` };
+    });
+  } catch (error: any) {
+    // 这里的 console.log 会在你的终端（VSCode/服务器）打印出具体的数据库错误
+    console.error("【数据库导入错误详情】:", error);
+    // 将具体错误抛给前端
+    throw new Error(error.message || "数据库写入失败，请检查字段长度或格式");
+  }
 }
 
 // ==================== 考试管理（**模版**） ====================
