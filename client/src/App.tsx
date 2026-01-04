@@ -24,6 +24,7 @@ import ExamList from "./pages/teacher/ExamList";
 import ExamDetail from "./pages/teacher/ExamDetail";
 import KnowledgeGraph from "./pages/teacher/KnowledgeGraph";
 import ExperimentList from "./pages/teacher/ExperimentList";
+import TeacherExperimentDetail from "./pages/teacher/ExperimentDetail";
 import StudentCourseList from "./pages/student/CourseList";
 import StudentAssignmentList from "./pages/student/AssignmentList";
 import StudentAssignmentDetail from "./pages/student/AssignmentDetail";
@@ -31,6 +32,8 @@ import StudentExamList from "./pages/student/ExamList";
 import StudentExamTaking from "./pages/student/ExamTaking";
 import AIAssistant from "./pages/student/AIAssistant";
 import StudentExperimentList from "./pages/student/ExperimentList";
+import StudentExperimentDetail from "./pages/student/ExperimentDetail";
+import StudentKnowledgeGraph from "./pages/student/KnowledgeGraph";
 import Profile from "./pages/Profile";
 import StudentCourseDetail from "./pages/student/StudentCourseDetail";
 
@@ -46,33 +49,33 @@ function Router() {
       <Route path="/admin/courses" component={AdminCourseList} />
       <Route path="/admin/classes" component={AdminClassList} />
 
-      {/* Teacher Routes */}
+      {/* Teacher Routes - specific routes first */}
       <Route path="/teacher/dashboard" component={TeacherDashboard} />
-      <Route path="/teacher/courses" component={CourseList} />
       <Route path="/teacher/courses/:id" component={CourseDetail} />
-      <Route path="/teacher/classes" component={ClassManage} />
+      <Route path="/teacher/courses" component={CourseList} />
       <Route path="/teacher/classes/:id" component={ClassDetail} />
-      <Route path="/teacher/assignments" component={AssignmentList} />
+      <Route path="/teacher/classes" component={ClassManage} />
       <Route path="/teacher/assignments/:id" component={AssignmentDetail} />
+      <Route path="/teacher/assignments" component={AssignmentList} />
       <Route path="/teacher/questions" component={QuestionBank} />
-      <Route path="/teacher/exams" component={ExamList} />
       <Route path="/teacher/exams/:id" component={ExamDetail} />
+      <Route path="/teacher/exams" component={ExamList} />
       <Route path="/teacher/knowledge-graph" component={KnowledgeGraph} />
+      <Route path="/teacher/experiments/:id" component={TeacherExperimentDetail} />
       <Route path="/teacher/experiments" component={ExperimentList} />
 
-      {/* Student Routes */}
+      {/* Student Routes - specific routes first */}
       <Route path="/student/dashboard" component={StudentDashboard} />
-      <Route path="/student/courses" component={StudentCourseList} />
       <Route path="/student/courses/:id" component={StudentCourseDetail} />
+      <Route path="/student/courses" component={StudentCourseList} />
+      <Route path="/student/assignments/:id" component={StudentAssignmentDetail} />
       <Route path="/student/assignments" component={StudentAssignmentList} />
-      <Route
-        path="/student/assignments/:id"
-        component={StudentAssignmentDetail}
-      />
-      <Route path="/student/exams" component={StudentExamList} />
       <Route path="/student/exams/:id/take" component={StudentExamTaking} />
+      <Route path="/student/exams" component={StudentExamList} />
       <Route path="/student/ai-assistant" component={AIAssistant} />
+      <Route path="/student/experiments/:id" component={StudentExperimentDetail} />
       <Route path="/student/experiments" component={StudentExperimentList} />
+      <Route path="/student/knowledge-graph" component={StudentKnowledgeGraph} />
 
       {/* Common Routes */}
       <Route path="/profile" component={Profile} />

@@ -251,6 +251,7 @@ export const examAnswerDetails = mysqlTable("examAnswerDetails", {
 /**
  * 实验表
  */
+// 实验表更新
 export const experiments = mysqlTable("experiments", {
   id: int("id").autoincrement().primaryKey(),
   courseId: int("courseId").notNull(),
@@ -260,13 +261,15 @@ export const experiments = mysqlTable("experiments", {
   requirements: text("requirements"),
   dueDate: timestamp("dueDate").notNull(),
   createdBy: int("createdBy").notNull(),
+  // 增加 config 字段
+  config: json("config"), // { language: [], template: "", test_cases: [], allow_ai_check: boolean }
   status: mysqlEnum("status", ["draft", "published", "closed"]).default("draft").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 /**
- * 实验提交表
+ * 实验提交表 - 增强状态和元数据
  */
 export const experimentSubmissions = mysqlTable("experimentSubmissions", {
   id: int("id").autoincrement().primaryKey(),
@@ -274,10 +277,14 @@ export const experimentSubmissions = mysqlTable("experimentSubmissions", {
   studentId: int("studentId").notNull(),
   code: text("code"),
   submittedAt: timestamp("submittedAt"),
-  status: mysqlEnum("status", ["submitted", "evaluated"]).default("submitted").notNull(),
+  // 新增状态: draft, returned, graded
+  status: mysqlEnum("status", ["draft", "submitted", "evaluated", "returned", "graded"]).default("draft").notNull(),
   evaluationResult: json("evaluationResult"),
   score: decimal("score", { precision: 5, scale: 2 }),
   feedback: text("feedback"),
+  // 新增 tracking 字段
+  lastActionAt: timestamp("lastActionAt").defaultNow(),
+  aiStats: json("aiStats"), // { syntaxErrors: 0, executionTime: 0 }
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

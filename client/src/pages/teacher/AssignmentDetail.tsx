@@ -5,13 +5,38 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, FileText, Users, Clock, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { ArrowLeft, FileText, Users, Clock, Loader2, XCircle } from "lucide-react";
+import { KnowledgePointManager } from "@/components/KnowledgePointManager";
 
 export default function AssignmentDetail() {
   const { id } = useParams<{ id: string }>();
   const assignmentId = parseInt(id || "0");
-  
+
   const { data: assignment, isLoading } = trpc.assignments.get.useQuery({ id: assignmentId });
+
+  const { data: linkedKPs, refetch: refetchLinkedKPs } = trpc.knowledge.getLinkedPoints.useQuery(
+    { entityType: "assignment", entityId: assignmentId },
+    { enabled: !!assignmentId }
+  );
+
+  const linkPointMutation = trpc.knowledge.linkPoint.useMutation({
+    onSuccess: () => {
+      toast.success("关联成功");
+      refetchLinkedKPs();
+    },
+    onError: (err) => toast.error(err.message)
+  });
+
+  const unlinkPointMutation = trpc.knowledge.unlinkPoint.useMutation({
+    onSuccess: () => {
+      toast.success("已取消关联");
+      refetchLinkedKPs();
+    },
+    onError: (err) => toast.error(err.message)
+  });
+
+  const pointOperationsLoading = linkPointMutation.isPending || unlinkPointMutation.isPending;
 
   if (isLoading) {
     return (
@@ -105,31 +130,77 @@ export default function AssignmentDetail() {
           </Card>
         </div>
 
-        {/* 作业内容 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>作业内容</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="prose max-w-none">
-              <p className="whitespace-pre-wrap">{assignment.description || "暂无作业描述"}</p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="md:col-span-2 space-y-6">
+            {/* 作业内容 */}
+            <Card>
+              <CardHeader>
+                <CardTitle>作业内容</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="prose max-w-none">
+                  <p className="whitespace-pre-wrap">{assignment.description || "暂无作业描述"}</p>
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* 提交列表 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>学生提交</CardTitle>
-            <CardDescription>查看和批改学生提交的作业</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center py-12 text-muted-foreground">
-              <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>暂无学生提交</p>
-            </div>
-          </CardContent>
-        </Card>
+            {/* 提交列表 */}
+            <Card>
+              <CardHeader>
+                <CardTitle>学生提交</CardTitle>
+                <CardDescription>查看和批改学生提交的作业</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-12 text-muted-foreground">
+                  <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>暂无学生提交</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="space-y-6">
+            {/* 关联知识点 */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-lg">关联知识点</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <KnowledgePointManager
+                  courseId={assignment.courseId}
+                  linkedKPs={linkedKPs || []}
+                  onLink={(kpId) => linkPointMutation.mutate({
+                    knowledgePointId: kpId,
+                    assignmentId: assignment.id
+                  })}
+                  onUnlink={(relId) => unlinkPointMutation.mutate({ relationId: relId })}
+                  isLoading={pointOperationsLoading}
+                />
+
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {!linkedKPs || linkedKPs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">暂未关联课程知识点</p>
+                  ) : (
+                    linkedKPs.map((kp: any) => (
+                      <Badge key={kp.id} variant="secondary" className="px-2 py-1 bg-slate-100 hover:bg-slate-200 gap-1 text-xs">
+                        <div className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                          {kp.name}
+                        </div>
+                        <button
+                          className="ml-1 text-slate-400 hover:text-red-500 transition-colors"
+                          onClick={() => unlinkPointMutation.mutate({ relationId: kp.relationId })}
+                        >
+                          <XCircle className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </DashboardLayout>
   );

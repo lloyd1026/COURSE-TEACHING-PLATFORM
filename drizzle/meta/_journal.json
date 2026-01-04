@@ -71,6 +71,13 @@
       "when": 1767506513398,
       "tag": "0009_futuristic_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1767513696330,
+      "tag": "0010_freezing_sheva_callister",
+      "breakpoints": true
     }
   ]
 }

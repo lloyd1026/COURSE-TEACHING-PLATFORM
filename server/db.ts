@@ -1,5 +1,6 @@
 import { eq, desc, and, like, or, inArray, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import * as schema from "../drizzle/schema";
 import {
   InsertUser,
   users,
@@ -11,7 +12,9 @@ import {
   questions,
   exams,
   experiments,
+  experimentSubmissions,
   knowledgePoints,
+  knowledgePointRelations,
   chapters,
   courseClasses,
   aiConversations,
@@ -24,12 +27,10 @@ import { ENV } from "./_core/env";
 import { hashPassword } from "./auth";
 
 let _db: ReturnType<typeof drizzle> | null = null;
-
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _db = drizzle(process.env.DATABASE_URL, { schema, mode: "default" });
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -264,9 +265,9 @@ export async function getCoursesByStudentId(
         eq(courses.status, "active"), // 学生通常只看激活状态的课
         searchQuery
           ? or(
-              like(courses.name, `%${searchQuery}%`),
-              like(courses.code, `%${searchQuery}%`)
-            )
+            like(courses.name, `%${searchQuery}%`),
+            like(courses.code, `%${searchQuery}%`)
+          )
           : undefined
       )
     )
@@ -737,7 +738,7 @@ export async function getQuestionsByTeacher(
   const db = await getDb();
   if (!db) throw new Error("数据库连接失败");
 
-  const whereConditions = [eq(questions.createdBy, teacherId),eq(questions.status, "active")];
+  const whereConditions = [eq(questions.createdBy, teacherId), eq(questions.status, "active")];
   if (filters.courseId) whereConditions.push(eq(questions.courseId, filters.courseId));
   if (filters.search) whereConditions.push(like(questions.content, `%${filters.search}%`));
 
@@ -797,7 +798,7 @@ export async function getQuestionsByStudent(userId: number, courseId?: number) {
     .from(students)
     .innerJoin(classes, eq(students.classId, classes.id))
     // 此处假设有一个 course_classes 表记录班级和课程的关联
-    .innerJoin(questions, eq(questions.courseId, courseId)) 
+    .innerJoin(questions, eq(questions.courseId, courseId))
     .where(and(
       eq(students.userId, userId),
       courseId ? eq(questions.courseId, courseId) : undefined
@@ -866,8 +867,8 @@ export async function deleteQuestionsBulk(ids: number[], teacherId: number) {
           examRefCount: sql<number>`(SELECT COUNT(*) FROM examQuestions WHERE questionId = ${id})`,
           assignRefCount: sql<number>`(SELECT COUNT(*) FROM assignmentQuestions WHERE questionId = ${id})`
         })
-        .from(questions)
-        .where(eq(questions.id, id));
+          .from(questions)
+          .where(eq(questions.id, id));
 
         const totalRefs = Number(usage?.examRefCount || 0) + Number(usage?.assignRefCount || 0);
 
@@ -957,7 +958,7 @@ export async function getExamsByTeacher(teacherId: number) {
     .select({
       exam: {
         ...examColumns,
-        status: getExamStatusSql(), 
+        status: getExamStatusSql(),
       },
       courseName: courses.name,
       classId: classes.id,
@@ -1050,8 +1051,8 @@ export async function getExamById(id: number) {
 }
 
 export async function upsertExam(
-  teacherId: number, 
-  data: any, 
+  teacherId: number,
+  data: any,
   classIds: number[]
 ) {
   const db = await getDb();
@@ -1079,7 +1080,7 @@ export async function upsertExam(
       await tx.update(exams)
         .set(examPayload)
         .where(and(eq(exams.id, examId), eq(exams.createdBy, teacherId)));
-      
+
       // --- 同步班级关联 (核心逻辑) ---
       // 先彻底物理删除该考试所有的旧班级关联
       await tx.delete(examClasses).where(eq(examClasses.examId, examId));
@@ -1160,7 +1161,60 @@ export async function getChaptersByCourseId(courseId: number) {
   return await db
     .select()
     .from(chapters)
-    .where(eq(chapters.courseId, courseId));
+    .where(eq(chapters.courseId, courseId))
+    .orderBy(asc(chapters.chapterOrder));
+}
+
+export async function createChapter(data: {
+  courseId: number;
+  title: string;
+  description?: string;
+  chapterOrder?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Auto-assign order if not provided
+  if (!data.chapterOrder) {
+    const existingChapters = await db
+      .select({ maxOrder: sql<number>`MAX(${chapters.chapterOrder})` })
+      .from(chapters)
+      .where(eq(chapters.courseId, data.courseId));
+    data.chapterOrder = (existingChapters[0]?.maxOrder || 0) + 1;
+  }
+
+  const result = await db.insert(chapters).values(data);
+  return { id: Number((result as any).insertId) };
+}
+
+export async function updateChapter(
+  id: number,
+  data: { title?: string; description?: string; chapterOrder?: number }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.update(chapters).set(data).where(eq(chapters.id, id));
+  return { success: true };
+}
+
+export async function deleteChapter(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Check if chapter has knowledge points
+  const linkedKPs = await db
+    .select({ id: knowledgePoints.id })
+    .from(knowledgePoints)
+    .where(eq(knowledgePoints.chapterId, id))
+    .limit(1);
+
+  if (linkedKPs.length > 0) {
+    throw new Error("无法删除：该章节下仍有知识点，请先删除知识点。");
+  }
+
+  await db.delete(chapters).where(eq(chapters.id, id));
+  return { success: true };
 }
 
 export async function getKnowledgePointsByChapterId(chapterId: number) {
@@ -1170,7 +1224,385 @@ export async function getKnowledgePointsByChapterId(chapterId: number) {
   return await db
     .select()
     .from(knowledgePoints)
-    .where(eq(knowledgePoints.chapterId, chapterId));
+    .where(eq(knowledgePoints.chapterId, chapterId))
+    .orderBy(asc(knowledgePoints.kpOrder));
+}
+
+export async function getKnowledgePointsByCourseId(courseId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      id: knowledgePoints.id,
+      name: knowledgePoints.name,
+      description: knowledgePoints.description,
+      chapterId: knowledgePoints.chapterId,
+      chapterTitle: chapters.title,
+    })
+    .from(knowledgePoints)
+    .leftJoin(chapters, eq(knowledgePoints.chapterId, chapters.id))
+    .where(eq(knowledgePoints.courseId, courseId))
+    .orderBy(asc(chapters.chapterOrder), asc(knowledgePoints.kpOrder));
+}
+
+export async function createKnowledgePoint(data: {
+  courseId: number;
+  chapterId?: number;
+  name: string;
+  description?: string;
+  kpOrder?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Auto-assign order if not provided
+  if (!data.kpOrder && data.chapterId) {
+    const existingKPs = await db
+      .select({ maxOrder: sql<number>`MAX(${knowledgePoints.kpOrder})` })
+      .from(knowledgePoints)
+      .where(eq(knowledgePoints.chapterId, data.chapterId));
+    data.kpOrder = (existingKPs[0]?.maxOrder || 0) + 1;
+  }
+
+  const result = await db.insert(knowledgePoints).values(data);
+  return { id: Number((result as any).insertId) };
+}
+
+export async function updateKnowledgePoint(
+  id: number,
+  data: { name?: string; description?: string; kpOrder?: number }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.update(knowledgePoints).set(data).where(eq(knowledgePoints.id, id));
+  return { success: true };
+}
+
+export async function deleteKnowledgePoint(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Delete related knowledge point relations first
+  await db
+    .delete(knowledgePointRelations)
+    .where(eq(knowledgePointRelations.knowledgePointId, id));
+
+  await db.delete(knowledgePoints).where(eq(knowledgePoints.id, id));
+  return { success: true };
+}
+
+export async function searchKnowledgePoints(courseId: number, query: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      id: knowledgePoints.id,
+      name: knowledgePoints.name,
+      description: knowledgePoints.description,
+      chapterId: knowledgePoints.chapterId,
+      chapterTitle: chapters.title,
+    })
+    .from(knowledgePoints)
+    .leftJoin(chapters, eq(knowledgePoints.chapterId, chapters.id))
+    .where(
+      and(
+        eq(knowledgePoints.courseId, courseId),
+        like(knowledgePoints.name, `%${query}%`)
+      )
+    )
+    .orderBy(asc(chapters.chapterOrder), asc(knowledgePoints.kpOrder));
+}
+
+// Knowledge Point Relations
+export async function linkKnowledgePoint(data: {
+  knowledgePointId: number;
+  assignmentId?: number;
+  examId?: number;
+  experimentId?: number;
+  questionId?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Check if already linked
+  const filters = [eq(knowledgePointRelations.knowledgePointId, data.knowledgePointId)];
+  if (data.assignmentId) filters.push(eq(knowledgePointRelations.assignmentId, data.assignmentId));
+  if (data.examId) filters.push(eq(knowledgePointRelations.examId, data.examId));
+  if (data.experimentId) filters.push(eq(knowledgePointRelations.experimentId, data.experimentId));
+  if (data.questionId) filters.push(eq(knowledgePointRelations.questionId, data.questionId));
+
+  const existing = await db
+    .select()
+    .from(knowledgePointRelations)
+    .where(and(...filters))
+    .limit(1);
+
+  if (existing.length > 0) {
+    return { success: true, message: "已关联" };
+  }
+
+  const result = await db.insert(knowledgePointRelations).values(data);
+  return { id: Number((result as any).insertId) };
+}
+
+export async function unlinkKnowledgePoint(relationId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.delete(knowledgePointRelations).where(eq(knowledgePointRelations.id, relationId));
+  return { success: true };
+}
+
+export async function getKnowledgePointsByEntity(
+  entityType: "assignment" | "exam" | "experiment" | "question",
+  entityId: number
+) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const entityColumn = {
+    assignment: knowledgePointRelations.assignmentId,
+    exam: knowledgePointRelations.examId,
+    experiment: knowledgePointRelations.experimentId,
+    question: knowledgePointRelations.questionId,
+  }[entityType];
+
+  return await db
+    .select({
+      relationId: knowledgePointRelations.id,
+      id: knowledgePoints.id,
+      name: knowledgePoints.name,
+      description: knowledgePoints.description,
+    })
+    .from(knowledgePointRelations)
+    .innerJoin(knowledgePoints, eq(knowledgePointRelations.knowledgePointId, knowledgePoints.id))
+    .where(eq(entityColumn, entityId));
+}
+
+// ==================== 实验管理增强 ====================
+
+export async function updateExperiment(
+  id: number,
+  data: Partial<typeof experiments.$inferInsert>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.update(experiments).set(data).where(eq(experiments.id, id));
+  return { success: true };
+}
+
+export async function deleteExperiment(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Check if has submissions
+  const submissions = await db
+    .select({ id: experimentSubmissions.id })
+    .from(experimentSubmissions)
+    .where(eq(experimentSubmissions.experimentId, id))
+    .limit(1);
+
+  if (submissions.length > 0) {
+    throw new Error("无法删除：该实验已有学生提交记录。");
+  }
+
+  // Delete knowledge point relations
+  await db
+    .delete(knowledgePointRelations)
+    .where(eq(knowledgePointRelations.experimentId, id));
+
+  await db.delete(experiments).where(eq(experiments.id, id));
+  return { success: true };
+}
+
+export async function publishExperiment(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(experiments)
+    .set({ status: "published" })
+    .where(eq(experiments.id, id));
+  return { success: true };
+}
+
+export async function closeExperiment(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(experiments)
+    .set({ status: "closed" })
+    .where(eq(experiments.id, id));
+  return { success: true };
+}
+
+// Experiment Submissions
+export async function submitExperiment(data: {
+  experimentId: number;
+  studentId: number;
+  code: string;
+  status?: "draft" | "submitted";
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const status = data.status || "submitted";
+  const now = new Date();
+
+  // Check if already submitted
+  const existing = await db
+    .select()
+    .from(experimentSubmissions)
+    .where(
+      and(
+        eq(experimentSubmissions.experimentId, data.experimentId),
+        eq(experimentSubmissions.studentId, data.studentId)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    const updateData: any = {
+      code: data.code,
+      lastActionAt: now,
+      status: status,
+    };
+
+    // Only update submittedAt if explicitly submitting
+    if (status === "submitted") {
+      updateData.submittedAt = now;
+    }
+
+    // Update existing submission
+    await db
+      .update(experimentSubmissions)
+      .set(updateData)
+      .where(eq(experimentSubmissions.id, existing[0].id));
+    return { id: existing[0].id, updated: true };
+  }
+
+  // Create new submission
+  const insertData: any = {
+    ...data,
+    status: status,
+    lastActionAt: now,
+  };
+
+  if (status === "submitted") {
+    insertData.submittedAt = now;
+  }
+
+  const result = await db.insert(experimentSubmissions).values(insertData);
+  return { id: Number((result as any).insertId), updated: false };
+}
+
+export async function getSubmissionsByExperiment(experimentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      id: experimentSubmissions.id,
+      code: experimentSubmissions.code,
+      status: experimentSubmissions.status,
+      score: experimentSubmissions.score,
+      feedback: experimentSubmissions.feedback,
+      submittedAt: experimentSubmissions.submittedAt,
+      lastActionAt: experimentSubmissions.lastActionAt,
+      evaluationResult: experimentSubmissions.evaluationResult,
+      studentId: students.studentId,
+      studentName: users.name,
+    })
+    .from(experimentSubmissions)
+    .innerJoin(students, eq(experimentSubmissions.studentId, students.id))
+    .innerJoin(users, eq(students.userId, users.id))
+    .where(eq(experimentSubmissions.experimentId, experimentId))
+    .orderBy(desc(experimentSubmissions.submittedAt));
+}
+
+// Get Progress for ALL students in class
+export async function getExperimentProgress(experimentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  // 1. Get Experiment to find classId
+  const experiment = await db
+    .select({ classId: experiments.classId })
+    .from(experiments)
+    .where(eq(experiments.id, experimentId))
+    .limit(1);
+
+  if (experiment.length === 0) return [];
+  const classId = experiment[0].classId;
+
+  // 2. Get All Students left join Submissions
+  return await db
+    .select({
+      studentId: students.studentId,
+      name: users.name,
+      // Submission fields (nullable)
+      submissionId: experimentSubmissions.id,
+      status: experimentSubmissions.status, // null means not started
+      score: experimentSubmissions.score,
+      lastActionAt: experimentSubmissions.lastActionAt,
+      submittedAt: experimentSubmissions.submittedAt
+    })
+    .from(students)
+    .innerJoin(users, eq(students.userId, users.id))
+    .leftJoin(
+      experimentSubmissions,
+      and(
+        eq(students.id, experimentSubmissions.studentId),
+        eq(experimentSubmissions.experimentId, experimentId)
+      )
+    )
+    .where(eq(students.classId, classId));
+}
+
+export async function getStudentSubmission(experimentId: number, studentId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select()
+    .from(experimentSubmissions)
+    .where(
+      and(
+        eq(experimentSubmissions.experimentId, experimentId),
+        eq(experimentSubmissions.studentId, studentId)
+      )
+    )
+    .limit(1);
+
+  return result[0] || null;
+}
+
+export async function evaluateSubmission(
+  submissionId: number,
+  result: {
+    score: number;
+    feedback?: string;
+    evaluationResult?: any;
+  }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(experimentSubmissions)
+    .set({
+      status: "evaluated",
+      score: result.score.toString(),
+      feedback: result.feedback,
+      evaluationResult: result.evaluationResult,
+    })
+    .where(eq(experimentSubmissions.id, submissionId));
+  return { success: true };
 }
 
 // ==================== AI 助教 ====================
