@@ -488,8 +488,8 @@ export async function createClass(data: typeof classes.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(classes).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(classes).values(data);
+  return { id: Number(result.insertId) };
 }
 // 更新班级信息
 export async function updateClass(
@@ -596,24 +596,33 @@ export async function upsertStudentsToClass(
         .set({ classId: classId })
         .where(eq(students.studentId, data.studentId));
     } else {
-      // 3. 如果不存在：说明是新学生，需要两步走
+      // 3. 如果不存在：说明没有学生档案，但账号可能已存在
+      const existingUsers = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, data.studentId))
+        .limit(1);
 
-      // 第一步：在 users 表创建账号
-      // 注意：MySQL 驱动下，insert 返回的是一个数组，第一个元素包含 insertId
-      const [userResult] = await db.insert(users).values({
-        username: data.studentId, // 用户名默认为学号
-        name: data.name,
-        password: hashPassword("123456"),
-        role: "student",
-        loginMethod: "system",
-        lastSignedIn: new Date(),
-      });
+      let newUserId: number;
 
-      const newUserId = userResult.insertId; // 获取刚才生成的自增 ID
+      if (existingUsers[0]) {
+        newUserId = existingUsers[0].id;
+      } else {
+        // 第一步：在 users 表创建账号
+        const [userResult] = await db.insert(users).values({
+          username: data.studentId, // 用户名默认为学号
+          name: data.name,
+          password: hashPassword("123456"),
+          role: "student",
+          loginMethod: "system",
+          lastSignedIn: new Date(),
+        });
+        newUserId = Number(userResult.insertId);
+      }
 
       // 第二步：在 students 业务表创建记录并关联班级
       await db.insert(students).values({
-        userId: newUserId, // 关联刚才创建的 user.id
+        userId: newUserId, // 关联 user.id
         studentId: data.studentId,
         classId: classId, // 关联到当前班级
       });
@@ -884,8 +893,8 @@ export async function createExperiment(data: typeof experiments.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(experiments).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(experiments).values(data);
+  return { id: Number(result.insertId) };
 }
 
 // ==================== 知识图谱 ====================
@@ -919,8 +928,8 @@ export async function createChapter(data: {
     data.chapterOrder = (existingChapters[0]?.maxOrder || 0) + 1;
   }
 
-  const result = await db.insert(chapters).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(chapters).values(data);
+  return { id: Number(result.insertId) };
 }
 
 export async function updateChapter(
@@ -1001,8 +1010,8 @@ export async function createKnowledgePoint(data: {
     data.kpOrder = (existingKPs[0]?.maxOrder || 0) + 1;
   }
 
-  const result = await db.insert(knowledgePoints).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(knowledgePoints).values(data);
+  return { id: Number(result.insertId) };
 }
 
 export async function updateKnowledgePoint(
@@ -1080,8 +1089,8 @@ export async function linkKnowledgePoint(data: {
     return { success: true, message: "已关联" };
   }
 
-  const result = await db.insert(knowledgePointRelations).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(knowledgePointRelations).values(data);
+  return { id: Number(result.insertId) };
 }
 
 export async function unlinkKnowledgePoint(relationId: number) {
@@ -1233,8 +1242,8 @@ export async function submitExperiment(data: {
     insertData.submittedAt = now;
   }
 
-  const result = await db.insert(experimentSubmissions).values(insertData);
-  return { id: Number((result as any).insertId), updated: false };
+  const [result] = await db.insert(experimentSubmissions).values(insertData);
+  return { id: Number(result.insertId), updated: false };
 }
 
 export async function getSubmissionsByExperiment(experimentId: number) {
