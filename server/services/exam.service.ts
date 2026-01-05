@@ -70,26 +70,73 @@ export async function getExamsByTeacher(teacherId: number) {
 }
 
 /**
- * 学生视角：获取所在班级的考试
+ * 学生视角：获取所在班级的考试 (修复 null 检查)
  */
 export async function getExamsByStudent(userId: number) {
   const db = await getDb();
+  if (!db) throw new Error("数据库连接失败");
+
   const rows = await db
     .select({
-      exam: { ...examColumns, status: getExamStatusSql() },
+      exam: {
+        ...examColumns,
+        status: getExamStatusSql(),
+      },
       courseName: courses.name,
       className: classes.name,
       classId: classes.id,
+      // 定义 submission 可能为 null 的结构
+      submission: {
+        id: submissions.id,
+        status: submissions.status,
+        totalScore: submissions.totalScore,
+        submittedAt: submissions.submittedAt,
+      },
     })
     .from(students)
     .innerJoin(examClasses, eq(students.classId, examClasses.classId))
     .innerJoin(exams, eq(examClasses.examId, exams.id))
     .leftJoin(courses, eq(exams.courseId, courses.id))
     .leftJoin(classes, eq(students.classId, classes.id))
+    .leftJoin(
+      submissions,
+      and(
+        eq(submissions.sourceId, exams.id),
+        eq(submissions.sourceType, "exam"),
+        eq(submissions.studentId, userId)
+      )
+    )
     .where(eq(students.userId, userId))
     .orderBy(desc(exams.startTime));
 
-  return aggregateExams(rows);
+  const examMap = new Map();
+
+  rows.forEach(row => {
+    if (!examMap.has(row.exam.id)) {
+      // ⚡️ 核心修复：安全访问 row.submission
+      const sub = row.submission;
+      const hasSubmitted = !!(sub && sub.id);
+
+      examMap.set(row.exam.id, {
+        ...row.exam,
+        courseName: row.courseName,
+        // 注入提交状态
+        hasSubmitted: hasSubmitted,
+        // 如果 sub 存在且有 ID，则返回 submission 对象，否则返回 null
+        submissionDetails: hasSubmitted ? sub : null,
+        targetClasses: [],
+      });
+    }
+
+    if (row.classId) {
+      examMap.get(row.exam.id).targetClasses.push({
+        id: row.classId,
+        name: row.className,
+      });
+    }
+  });
+
+  return Array.from(examMap.values());
 }
 
 /**
@@ -114,41 +161,45 @@ export async function getExamsForAdmin() {
 }
 
 /**
- * 获取单场考试详情
+ * 获取单场考试详情 ExamDetail页面 (含班级和题目信息)
  */
 export async function getExamById(id: number) {
   const db = await getDb();
   if (!db) return null;
 
-  // 1. 获取考试主表信息 (保持不变)
   const examResult = await db
     .select({
       ...getTableColumns(exams),
-      courseName: courses.name
+      courseName: courses.name,
+      status: getExamStatusSql(),
     })
     .from(exams)
     .innerJoin(courses, eq(exams.courseId, courses.id))
     .where(eq(exams.id, id))
     .limit(1);
-  
+
   if (examResult.length === 0) return null;
   const exam = examResult[0];
 
-  // 2. 获取关联班级 ID (保持不变)
+  // ⚡️ 修改点：通过 innerJoin 获取班级详情对象
   const classRelations = await db
-    .select({ classId: examClasses.classId })
+    .select({ 
+      id: classes.id, 
+      name: classes.name 
+    })
     .from(examClasses)
+    .innerJoin(classes, eq(examClasses.classId, classes.id)) // 关联班级表拿名字
     .where(eq(examClasses.examId, id));
 
-  // 3. 获取关联题目信息
   const questionRelations = await db
+    // ... 这里的题目查询逻辑保持不变
     .select({
       id: questions.id,
       questionId: questions.id,
       title: questions.title,
       content: questions.content,
       type: questions.type,
-      options: questions.options, // 这里拿到的可能是字符串
+      options: questions.options,
       score: examQuestions.score,
       order: examQuestions.questionOrder,
     })
@@ -157,31 +208,19 @@ export async function getExamById(id: number) {
     .where(eq(examQuestions.examId, id))
     .orderBy(examQuestions.questionOrder);
 
-  // 4. ✅ 核心修复：对返回的题目进行预处理，确保 options 是对象数组
   const processedQuestions = questionRelations.map(q => {
     let finalOptions = q.options;
-    
-    // 如果 options 是字符串类型，则进行解析
-    if (typeof q.options === 'string') {
-      try {
-        finalOptions = JSON.parse(q.options);
-      } catch (e) {
-        console.error(`解析题目 ID ${q.id} 的 options 失败:`, e);
-        finalOptions = []; // 解析失败则降级为空数组
-      }
+    if (typeof q.options === "string") {
+      try { finalOptions = JSON.parse(q.options); } catch (e) { finalOptions = []; }
     }
-
-    return {
-      ...q,
-      options: finalOptions
-    };
+    return { ...q, options: finalOptions };
   });
 
-  // 5. 合并返回
   return {
     ...exam,
-    classIds: classRelations.map(r => r.classId),
-    questions: processedQuestions, // 使用处理后的题目列表
+    classIds: classRelations.map(r => r.id), // 供 Select 选择器用
+    targetClasses: classRelations,           // ✅ 供详情页显示班级名字用，解决报错
+    questions: processedQuestions,
   };
 }
 
@@ -197,7 +236,7 @@ export async function upsertExam(
   const db = await getDb();
   if (!db) throw new Error("数据库连接失败");
 
-  return await db.transaction(async (tx) => {
+  return await db.transaction(async tx => {
     let examId = data.id;
 
     // 1. 计算考试结束时间
@@ -219,10 +258,11 @@ export async function upsertExam(
     // 3. 执行主表更新或插入
     if (examId) {
       // 更新考试：需确保是创建者本人
-      await tx.update(exams)
+      await tx
+        .update(exams)
         .set({ ...payload, updatedAt: new Date() })
         .where(and(eq(exams.id, examId), eq(exams.createdBy, teacherId)));
-      
+
       // 清理关联表 (借鉴作业逻辑：先删后增)
       await tx.delete(examClasses).where(eq(examClasses.examId, examId));
       await tx.delete(examQuestions).where(eq(examQuestions.examId, examId));
@@ -236,7 +276,7 @@ export async function upsertExam(
     if (classIds?.length > 0) {
       const classValues = classIds.map(cid => ({
         examId: Number(examId),
-        classId: cid
+        classId: cid,
       }));
       await tx.insert(examClasses).values(classValues as any);
     }
@@ -247,7 +287,7 @@ export async function upsertExam(
         examId: Number(examId),
         questionId: q.questionId,
         score: q.score, // 数据库定义为 int，保持 number 类型
-        questionOrder: q.order ?? (idx + 1),
+        questionOrder: q.order ?? idx + 1,
       }));
 
       // 使用 as any 解决 Drizzle TypeScript 重载报错问题
@@ -483,6 +523,7 @@ export async function getExamSubmissionDetail(submissionId: number) {
   const [submission] = await db
     .select({
       id: submissions.id,
+      studentId: users.id,
       studentName: users.name,
       totalScore: submissions.totalScore,
       status: submissions.status,
@@ -501,7 +542,9 @@ export async function getExamSubmissionDetail(submissionId: number) {
     .select({
       detailId: submissionDetails.id,
       questionId: questions.id,
+      title: questions.title,
       content: questions.content,
+      analysis: questions.analysis,
       type: questions.type,
       options: questions.options,
       standardAnswer: questions.answer,
@@ -520,6 +563,20 @@ export async function getExamSubmissionDetail(submissionId: number) {
       )
     )
     .where(eq(submissionDetails.submissionId, submissionId));
+  const processedDetails = details.map(d => {
+    let finalOptions = d.options;
+    if (typeof d.options === "string") {
+      try {
+        finalOptions = JSON.parse(d.options);
+      } catch (e) {
+        finalOptions = [];
+      }
+    }
+    return {
+      ...d,
+      options: finalOptions,
+    };
+  });
 
-  return { submission, details };
+  return { submission, details: processedDetails };
 }

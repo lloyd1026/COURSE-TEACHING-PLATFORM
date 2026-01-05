@@ -38,6 +38,9 @@ import Profile from "./pages/Profile";
 import StudentCourseDetail from "./pages/student/StudentCourseDetail";
 import AssignmentGrading from "./pages/teacher/AssignmentGrading";
 import GradingDetail from "./pages/teacher/GradingDetail";
+// 教师考试批阅相关页面
+import ExamGradingList from "./pages/teacher/ExamGradingList";
+import ExamGradingDetail from "./pages/teacher/ExamGradingDetail";
 
 function Router() {
   return (
@@ -63,7 +66,10 @@ function Router() {
       <Route path="/teacher/exams/:id" component={ExamDetail} />
       <Route path="/teacher/exams" component={ExamList} />
       <Route path="/teacher/knowledge-graph" component={KnowledgeGraph} />
-      <Route path="/teacher/experiments/:id" component={TeacherExperimentDetail} />
+      <Route
+        path="/teacher/experiments/:id"
+        component={TeacherExperimentDetail}
+      />
       <Route path="/teacher/experiments" component={ExperimentList} />
       <Route
         path="/teacher/assignments/:id/grading"
@@ -75,14 +81,27 @@ function Router() {
       <Route path="/student/dashboard" component={StudentDashboard} />
       <Route path="/student/courses/:id" component={StudentCourseDetail} />
       <Route path="/student/courses" component={StudentCourseList} />
-      <Route path="/student/assignments/:id" component={StudentAssignmentDetail} />
+      <Route
+        path="/student/assignments/:id"
+        component={StudentAssignmentDetail}
+      />
       <Route path="/student/assignments" component={StudentAssignmentList} />
       <Route path="/student/exams/:id/take" component={StudentExamTaking} />
       <Route path="/student/exams" component={StudentExamList} />
       <Route path="/student/ai-assistant" component={AIAssistant} />
-      <Route path="/student/experiments/:id" component={StudentExperimentDetail} />
+      <Route
+        path="/student/experiments/:id"
+        component={StudentExperimentDetail}
+      />
       <Route path="/student/experiments" component={StudentExperimentList} />
-      <Route path="/student/knowledge-graph" component={StudentKnowledgeGraph} />
+      <Route
+        path="/student/knowledge-graph"
+        component={StudentKnowledgeGraph}
+      />
+
+      {/* Teacher Exam Grading Routes */}
+      <Route path="/teacher/exams/grading/:submissionId" component={ExamGradingDetail} />
+      <Route path="/teacher/exams/:examId/grading" component={ExamGradingList} />
 
       {/* Common Routes */}
       <Route path="/profile" component={Profile} />

@@ -191,7 +191,7 @@ export default function TeacherDashboard() {
                     </div>
                     <ChevronRight className="h-3.5 w-3.5 opacity-30" />
                   </button>
-                  <button 
+                  {/* <button 
                     onClick={() => setActiveDialog("assignment")}
                     className="w-full flex items-center justify-between rounded-2xl bg-white/10 p-4 transition-all hover:bg-white/15 cursor-pointer backdrop-blur-md"
                   >
@@ -200,7 +200,7 @@ export default function TeacherDashboard() {
                       <span className="text-[12px] font-medium">布置新作业</span>
                     </div>
                     <ChevronRight className="h-3.5 w-3.5 opacity-30" />
-                  </button>
+                  </button> */}
                   <button 
                     onClick={() => setActiveDialog("class")}
                     className="w-full flex items-center justify-between rounded-2xl bg-white/10 p-4 transition-all hover:bg-white/15 cursor-pointer backdrop-blur-md"
@@ -249,9 +249,9 @@ export default function TeacherDashboard() {
             {activeDialog === "class" && (
               <ClassForm onSuccess={() => { setActiveDialog(null); utils.classes.list.invalidate(); }} />
             )}
-            {activeDialog === "assignment" && (
+            {/* {activeDialog === "assignment" && (
               <AssignmentForm onSuccess={() => { setActiveDialog(null); utils.assignments.list.invalidate(); }} />
-            )}
+            )} */}
           </div>
         </DialogContent>
       </Dialog>
