@@ -174,6 +174,41 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         return await auth.updateUserProfile(ctx.user.id, input);
       }),
+
+    // Admin: Create User
+    create: adminProcedure
+      .input(
+        z.object({
+          username: z.string().min(3),
+          password: z.string().min(6),
+          name: z.string(),
+          role: z.enum(["admin", "teacher", "student"]),
+          email: z.string().email().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return await auth.createUser(input);
+      }),
+
+    // Admin: Delete User
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return await db.deleteUser(input.id);
+      }),
+
+    // Admin: Reset Password
+    adminResetPassword: adminProcedure
+      .input(
+        z.object({
+          userId: z.number(),
+          newPassword: z.string().min(6),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const hashedPassword = auth.hashPassword(input.newPassword);
+        return await db.adminResetPassword(input.userId, hashedPassword);
+      }),
   }),
 
   // ==================== 课程管理 ====================
@@ -420,22 +455,22 @@ export const appRouter = router({
      * 增加 selectedQuestions 校验
      */
     upsert: teacherProcedure
-    .input(
-      z.object({
-        id: z.number().optional(),
-        title: z.string().min(1, "题目简称不能为空"),
-        content: z.string().min(1, "题干正文不能为空"),
-        type: z.enum(["single_choice", "multiple_choice", "fill_blank", "true_false", "essay", "programming"]),
-        difficulty: z.enum(["easy", "medium", "hard"]),
-        answer: z.string().min(1, "正确答案不能为空"),
-        analysis: z.string().optional(),
-        courseId: z.number().min(1, "请选择所属课程"),
-        options: z.any().optional().nullable(), // 这里接收选项数组
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      return await db.upsertQuestion(ctx.user.id, input);
-    }),
+      .input(
+        z.object({
+          id: z.number().optional(),
+          title: z.string().min(1, "题目简称不能为空"),
+          content: z.string().min(1, "题干正文不能为空"),
+          type: z.enum(["single_choice", "multiple_choice", "fill_blank", "true_false", "essay", "programming"]),
+          difficulty: z.enum(["easy", "medium", "hard"]),
+          answer: z.string().min(1, "正确答案不能为空"),
+          analysis: z.string().optional(),
+          courseId: z.number().min(1, "请选择所属课程"),
+          options: z.any().optional().nullable(), // 这里接收选项数组
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return await db.upsertQuestion(ctx.user.id, input);
+      }),
 
     /**
      * 删除作业
@@ -609,7 +644,7 @@ export const appRouter = router({
     listWithStatus: protectedProcedure
       .input(z.object({ courseId: z.number().optional() }).optional())
       .query(async ({ ctx, input }) => {
-        const experiments = await db.getAllExperiments(input?.courseId);
+        const experiments = await db.getExperimentsByStudent(ctx.user.id, input?.courseId);
 
         // Get student record
         const dbInstance = await db.getDb();

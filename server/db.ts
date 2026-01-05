@@ -1090,6 +1090,22 @@ export async function getAllExperiments(courseId?: number) {
     .orderBy(desc(experiments.createdAt));
 }
 
+export async function getExperimentsByStudent(userId: number, courseId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({ ...getTableColumns(experiments) })
+    .from(experiments)
+    .innerJoin(students, eq(experiments.classId, students.classId))
+    .where(and(
+      eq(students.userId, userId),
+      eq(experiments.status, "published"),
+      courseId ? eq(experiments.courseId, courseId) : undefined
+    ))
+    .orderBy(desc(experiments.createdAt));
+}
+
 export async function getExperimentById(id: number) {
   const db = await getDb();
   if (!db) return null;
@@ -1637,19 +1653,61 @@ export async function saveAIMessage(
 
 export async function getStatistics() {
   const db = await getDb();
-  if (!db) return { userCount: 0, courseCount: 0, classCount: 0 };
+  if (!db) return {
+    userCount: 0,
+    courseCount: 0,
+    classCount: 0,
+    assignmentCount: 0,
+    examCount: 0,
+    questionCount: 0,
+    experimentCount: 0
+  };
 
-  const [userCountResult] = await db.select({ count: users.id }).from(users);
-  const [courseCountResult] = await db
-    .select({ count: courses.id })
-    .from(courses);
-  const [classCountResult] = await db
-    .select({ count: classes.id })
-    .from(classes);
+  // Helper to get count
+  const getCount = async (table: any) => {
+    const res = await db.select({ count: sql<number>`count(*)` }).from(table);
+    return res[0]?.count || 0;
+  };
+
+  const [
+    userCount,
+    courseCount,
+    classCount,
+    assignmentCount,
+    examCount,
+    questionCount,
+    experimentCount
+  ] = await Promise.all([
+    getCount(users),
+    getCount(courses),
+    getCount(classes),
+    getCount(assignments),
+    getCount(exams),
+    getCount(questions),
+    getCount(experiments)
+  ]);
 
   return {
-    userCount: userCountResult?.count || 0,
-    courseCount: courseCountResult?.count || 0,
-    classCount: classCountResult?.count || 0,
+    userCount,
+    courseCount,
+    classCount,
+    assignmentCount,
+    examCount,
+    questionCount,
+    experimentCount
   };
+}
+
+// ==================== User Management (Admin) ====================
+
+export async function deleteUser(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  return await db.delete(users).where(eq(users.id, id));
+}
+
+export async function adminResetPassword(id: number, hashedPassword: string) {
+  const db = await getDb();
+  if (!db) return;
+  return await db.update(users).set({ password: hashedPassword }).where(eq(users.id, id));
 }

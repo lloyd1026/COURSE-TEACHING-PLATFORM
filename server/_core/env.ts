@@ -21,4 +21,8 @@ export const ENV = {
   aiModel: process.env.AI_MODEL ?? "deepseek-ai/DeepSeek-V3",
   siliconflowApiKey: process.env.SILICONFLOW_API_KEY ?? "",
   siliconflowApiBase: process.env.SILICONFLOW_API_BASE ?? "https://api.siliconflow.cn/v1",
+
+  // Forge API (Legacy/Optional)
+  forgeApiUrl: process.env.FORGE_API_URL ?? "",
+  forgeApiKey: process.env.FORGE_API_KEY ?? "",
 };
