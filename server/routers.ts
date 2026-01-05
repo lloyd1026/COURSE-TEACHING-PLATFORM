@@ -175,6 +175,41 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         return await auth.updateUserProfile(ctx.user.id, input);
       }),
+
+    // Admin: Create User
+    create: adminProcedure
+      .input(
+        z.object({
+          username: z.string().min(3),
+          password: z.string().min(6),
+          name: z.string(),
+          role: z.enum(["admin", "teacher", "student"]),
+          email: z.string().email().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return await auth.createUser(input);
+      }),
+
+    // Admin: Delete User
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return await db.deleteUser(input.id);
+      }),
+
+    // Admin: Reset Password
+    adminResetPassword: adminProcedure
+      .input(
+        z.object({
+          userId: z.number(),
+          newPassword: z.string().min(6),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const hashedPassword = auth.hashPassword(input.newPassword);
+        return await db.adminResetPassword(input.userId, hashedPassword);
+      }),
   }),
 
   // ==================== 课程管理 ====================
@@ -527,7 +562,7 @@ export const appRouter = router({
     listWithStatus: protectedProcedure
       .input(z.object({ courseId: z.number().optional() }).optional())
       .query(async ({ ctx, input }) => {
-        const experiments = await db.getAllExperiments(input?.courseId);
+        const experiments = await db.getExperimentsByStudent(ctx.user.id, input?.courseId);
 
         // Get student record
         const dbInstance = await db.getDb();
@@ -902,8 +937,8 @@ Task:
           return { output: output, error: true };
         } finally {
           // Cleanup type: fire and forget
-          if (filePath) fs.unlink(filePath).catch(() => {});
-          if (outPath) fs.unlink(outPath).catch(() => {});
+          if (filePath) fs.unlink(filePath).catch(() => { });
+          if (outPath) fs.unlink(outPath).catch(() => { });
         }
       }),
 

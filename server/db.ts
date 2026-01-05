@@ -488,8 +488,8 @@ export async function createClass(data: typeof classes.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(classes).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(classes).values(data);
+  return { id: Number(result.insertId) };
 }
 // 更新班级信息
 export async function updateClass(
@@ -596,24 +596,33 @@ export async function upsertStudentsToClass(
         .set({ classId: classId })
         .where(eq(students.studentId, data.studentId));
     } else {
-      // 3. 如果不存在：说明是新学生，需要两步走
+      // 3. 如果不存在：说明没有学生档案，但账号可能已存在
+      const existingUsers = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, data.studentId))
+        .limit(1);
 
-      // 第一步：在 users 表创建账号
-      // 注意：MySQL 驱动下，insert 返回的是一个数组，第一个元素包含 insertId
-      const [userResult] = await db.insert(users).values({
-        username: data.studentId, // 用户名默认为学号
-        name: data.name,
-        password: hashPassword("123456"),
-        role: "student",
-        loginMethod: "system",
-        lastSignedIn: new Date(),
-      });
+      let newUserId: number;
 
-      const newUserId = userResult.insertId; // 获取刚才生成的自增 ID
+      if (existingUsers[0]) {
+        newUserId = existingUsers[0].id;
+      } else {
+        // 第一步：在 users 表创建账号
+        const [userResult] = await db.insert(users).values({
+          username: data.studentId, // 用户名默认为学号
+          name: data.name,
+          password: hashPassword("123456"),
+          role: "student",
+          loginMethod: "system",
+          lastSignedIn: new Date(),
+        });
+        newUserId = Number(userResult.insertId);
+      }
 
       // 第二步：在 students 业务表创建记录并关联班级
       await db.insert(students).values({
-        userId: newUserId, // 关联刚才创建的 user.id
+        userId: newUserId, // 关联 user.id
         studentId: data.studentId,
         classId: classId, // 关联到当前班级
       });
@@ -852,6 +861,22 @@ export async function getAllExperiments(courseId?: number) {
     .orderBy(desc(experiments.createdAt));
 }
 
+export async function getExperimentsByStudent(userId: number, courseId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({ ...getTableColumns(experiments) })
+    .from(experiments)
+    .innerJoin(students, eq(experiments.classId, students.classId))
+    .where(and(
+      eq(students.userId, userId),
+      eq(experiments.status, "published"),
+      courseId ? eq(experiments.courseId, courseId) : undefined
+    ))
+    .orderBy(desc(experiments.createdAt));
+}
+
 export async function getExperimentById(id: number) {
   const db = await getDb();
   if (!db) return null;
@@ -868,8 +893,8 @@ export async function createExperiment(data: typeof experiments.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(experiments).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(experiments).values(data);
+  return { id: Number(result.insertId) };
 }
 
 // ==================== 知识图谱 ====================
@@ -903,8 +928,8 @@ export async function createChapter(data: {
     data.chapterOrder = (existingChapters[0]?.maxOrder || 0) + 1;
   }
 
-  const result = await db.insert(chapters).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(chapters).values(data);
+  return { id: Number(result.insertId) };
 }
 
 export async function updateChapter(
@@ -985,8 +1010,8 @@ export async function createKnowledgePoint(data: {
     data.kpOrder = (existingKPs[0]?.maxOrder || 0) + 1;
   }
 
-  const result = await db.insert(knowledgePoints).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(knowledgePoints).values(data);
+  return { id: Number(result.insertId) };
 }
 
 export async function updateKnowledgePoint(
@@ -1064,8 +1089,8 @@ export async function linkKnowledgePoint(data: {
     return { success: true, message: "已关联" };
   }
 
-  const result = await db.insert(knowledgePointRelations).values(data);
-  return { id: Number((result as any).insertId) };
+  const [result] = await db.insert(knowledgePointRelations).values(data);
+  return { id: Number(result.insertId) };
 }
 
 export async function unlinkKnowledgePoint(relationId: number) {
@@ -1217,8 +1242,8 @@ export async function submitExperiment(data: {
     insertData.submittedAt = now;
   }
 
-  const result = await db.insert(experimentSubmissions).values(insertData);
-  return { id: Number((result as any).insertId), updated: false };
+  const [result] = await db.insert(experimentSubmissions).values(insertData);
+  return { id: Number(result.insertId), updated: false };
 }
 
 export async function getSubmissionsByExperiment(experimentId: number) {
@@ -1399,19 +1424,61 @@ export async function saveAIMessage(
 
 export async function getStatistics() {
   const db = await getDb();
-  if (!db) return { userCount: 0, courseCount: 0, classCount: 0 };
+  if (!db) return {
+    userCount: 0,
+    courseCount: 0,
+    classCount: 0,
+    assignmentCount: 0,
+    examCount: 0,
+    questionCount: 0,
+    experimentCount: 0
+  };
 
-  const [userCountResult] = await db.select({ count: users.id }).from(users);
-  const [courseCountResult] = await db
-    .select({ count: courses.id })
-    .from(courses);
-  const [classCountResult] = await db
-    .select({ count: classes.id })
-    .from(classes);
+  // Helper to get count
+  const getCount = async (table: any) => {
+    const res = await db.select({ count: sql<number>`count(*)` }).from(table);
+    return res[0]?.count || 0;
+  };
+
+  const [
+    userCount,
+    courseCount,
+    classCount,
+    assignmentCount,
+    examCount,
+    questionCount,
+    experimentCount
+  ] = await Promise.all([
+    getCount(users),
+    getCount(courses),
+    getCount(classes),
+    getCount(assignments),
+    getCount(exams),
+    getCount(questions),
+    getCount(experiments)
+  ]);
 
   return {
-    userCount: userCountResult?.count || 0,
-    courseCount: courseCountResult?.count || 0,
-    classCount: classCountResult?.count || 0,
+    userCount,
+    courseCount,
+    classCount,
+    assignmentCount,
+    examCount,
+    questionCount,
+    experimentCount
   };
+}
+
+// ==================== User Management (Admin) ====================
+
+export async function deleteUser(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  return await db.delete(users).where(eq(users.id, id));
+}
+
+export async function adminResetPassword(id: number, hashedPassword: string) {
+  const db = await getDb();
+  if (!db) return;
+  return await db.update(users).set({ password: hashedPassword }).where(eq(users.id, id));
 }

@@ -24,7 +24,7 @@ export function verifyPassword(password: string, hashedPassword: string): boolea
 export async function getUserByUsername(username: string) {
   const db = await getDb();
   if (!db) return undefined;
-  
+
   const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
@@ -35,7 +35,7 @@ export async function getUserByUsername(username: string) {
 export async function getUserByEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
-  
+
   const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
@@ -54,8 +54,8 @@ export async function createUser(data: {
   if (!db) throw new Error('Database not available');
 
   const hashedPassword = hashPassword(data.password);
-  
-  const result = await db.insert(users).values({
+
+  const [result] = await db.insert(users).values({
     username: data.username,
     password: hashedPassword,
     name: data.name,
@@ -65,7 +65,7 @@ export async function createUser(data: {
     lastSignedIn: new Date(),
   });
 
-  return result;
+  return { id: result.insertId, username: data.username };
 }
 
 /**
@@ -73,15 +73,15 @@ export async function createUser(data: {
  */
 export async function authenticateUser(username: string, password: string) {
   const user = await getUserByUsername(username);
-  
+
   if (!user || !user.password) {
     return null;
   }
-  
+
   if (!verifyPassword(password, user.password)) {
     return null;
   }
-  
+
   // 更新最后登录时间
   const db = await getDb();
   if (db) {
@@ -89,7 +89,7 @@ export async function authenticateUser(username: string, password: string) {
       .set({ lastSignedIn: new Date() })
       .where(eq(users.id, user.id));
   }
-  
+
   return user;
 }
 
@@ -119,7 +119,7 @@ export async function authenticateUser(username: string, password: string) {
 //       }
 
 //       const hashedPassword = hashPassword(student.password);
-      
+
 //       await db.insert(users).values({
 //         username: student.username,
 //         password: hashedPassword,
@@ -179,7 +179,7 @@ export async function updateUserProfile(userId: number, input: { name?: string; 
   // 1. 先查询当前用户，获取旧头像的 URL
   const db = await getDb();
   if (!db) throw new Error('Database not available');
-  
+
   const [existingUser] = await db.select().from(users).where(eq(users.id, userId));
   const oldAvatarUrl = existingUser?.avatar;
 
@@ -190,10 +190,10 @@ export async function updateUserProfile(userId: number, input: { name?: string; 
     try {
       const base64Data = input.avatar.replace(/^data:image\/\w+;base64,/, "");
       const buffer = Buffer.from(base64Data, 'base64');
-      
+
       const fileName = `user-${userId}-${Date.now()}.jpg`;
       const uploadResult = await storagePut(fileName, buffer, "image/jpeg");
-      finalAvatarUrl = uploadResult.url; 
+      finalAvatarUrl = uploadResult.url;
 
       // 3. 【核心逻辑】如果上传新图成功，且之前有旧图，则删除旧图
       if (oldAvatarUrl && oldAvatarUrl.includes('supabase.co')) {
@@ -208,11 +208,11 @@ export async function updateUserProfile(userId: number, input: { name?: string; 
 
   // 4. 更新数据库
   return await db.update(users)
-    .set({ 
+    .set({
       ...(input.name && { name: input.name }),
       ...(input.email && { email: input.email }),
       ...(finalAvatarUrl && { avatar: finalAvatarUrl }),
-      updatedAt: new Date() 
+      updatedAt: new Date()
     })
     .where(eq(users.id, userId));
 }
