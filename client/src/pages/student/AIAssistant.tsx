@@ -51,7 +51,7 @@ export default function StudentAIAssistant() {
 
         utils.ai.getMessages.setData({ conversationId: activeId }, (old) => [
           ...(old || []),
-          { role: 'user', content: newItem.message, createdAt: new Date().toISOString() }
+          { role: 'user', content: newItem.message, createdAt: new Date() }
         ]);
 
         return { previousMessages };
@@ -134,8 +134,8 @@ export default function StudentAIAssistant() {
               <div
                 key={conv.id}
                 className={`w-full group flex items-center gap-2 p-2 rounded-2xl border transition-all ${activeId === conv.id
-                    ? "bg-white border-white shadow-md"
-                    : "bg-transparent border-transparent hover:bg-white/50"
+                  ? "bg-white border-white shadow-md"
+                  : "bg-transparent border-transparent hover:bg-white/50"
                   }`}
               >
                 <button

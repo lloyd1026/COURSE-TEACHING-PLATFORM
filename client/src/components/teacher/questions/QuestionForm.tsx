@@ -1,317 +1,271 @@
+"use client";
+
 import { useState, useEffect, useMemo } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Form, FormControl, FormField, FormItem, FormLabel, FormMessage 
-} from "@/components/ui/form";
-import { 
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
-} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { QUESTION_TYPE_CONFIG, DIFFICULTY_CONFIG } from "@/lib/configs";
-import { Loader2, Sparkles, Check, Plus, X, Layers } from "lucide-react";
+import { 
+  Loader2, Sparkles, Check, Plus, X, Layers, 
+  Code, FileText, CheckCircle2, AlertCircle 
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-// 表单校验架构
-const formSchema = z.object({
-  id: z.number().optional(),
-  title: z.string().min(1, "请输入题目简称或标题"),
-  content: z.string().min(1, "请输入题干正文"),
-  type: z.enum(["single_choice", "multiple_choice", "fill_blank", "true_false", "essay", "programming"]),
-  difficulty: z.enum(["easy", "medium", "hard"]),
-  answer: z.string().min(1, "正确答案不能为空"),
-  analysis: z.string().optional(),
-  courseId: z.number().min(1, "请选择所属课程"),
-  options: z.array(z.object({
-    label: z.string(),
-    text: z.string() 
-  })).optional().nullable(),
-});
+type QuestionType = "single_choice" | "multiple_choice" | "fill_blank" | "true_false" | "essay" | "programming";
+type DifficultyType = "easy" | "medium" | "hard";
 
-type FormValues = z.infer<typeof formSchema>;
-
-interface QuestionFormProps {
-  initialData?: any; 
-  onSuccess: () => void; 
-  readOnly?: boolean; 
-}
-
-export default function QuestionForm({ initialData, onSuccess, readOnly = false }: QuestionFormProps) {
+export default function QuestionForm({ initialData, onSuccess, readOnly = false }: any) {
   const isEdit = !!initialData?.id;
   const utils = trpc.useUtils();
-  const { data: courses } = trpc.courses.list.useQuery();
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      title: "",
-      content: "",
-      type: "single_choice",
-      difficulty: "medium",
-      answer: "",
-      analysis: "",
-      courseId: 0,
-      options: [
-        { label: "A", text: "" }, { label: "B", text: "" }, 
-        { label: "C", text: "" }, { label: "D", text: "" }
-      ],
-    },
+  // 1. 初始化状态：确保 title, content 等字段始终存在
+  const [formData, setFormData] = useState({
+    title: "",
+    content: "",
+    type: "single_choice" as QuestionType,
+    difficulty: "medium" as DifficultyType,
+    answer: "",
+    analysis: "",
+    courseId: "", 
+    options: [] as { label: string; text: string }[],
   });
 
-  const { fields, append, remove } = useFieldArray({
-    control: form.control,
-    name: "options",
-  });
+  const { data: courses, isLoading: isCoursesLoading } = trpc.courses.list.useQuery();
 
-  // 关键：监听 initialData 并执行重置逻辑
+  const isChoice = useMemo(() => ["single_choice", "multiple_choice", "true_false"].includes(formData.type), [formData.type]);
+
+  // 2. 数据回填：处理 options 解析与 T/F 自动补全
   useEffect(() => {
     if (initialData) {
-      // 1. 处理选项 JSON
       let opts = initialData.options;
       if (typeof opts === 'string') {
         try { opts = JSON.parse(opts); } catch { opts = []; }
       }
+      
+      // 针对判断题的静默修复逻辑
+      if (initialData.type === "true_false" && (!opts || opts.length === 0)) {
+        opts = [{ label: "T", text: "正确" }, { label: "F", text: "错误" }];
+      }
 
-      // 2. 强制回显字段映射，确保 title 和 courseId 能够被识别
-      form.reset({
-        id: initialData.id,
-        title: initialData.title || "", // 确保 title 存在
+      setFormData({
+        title: initialData.title || "",
         content: initialData.content || "",
-        type: initialData.type || "single_choice",
-        difficulty: initialData.difficulty || "medium",
+        type: (initialData.type || "single_choice") as QuestionType,
+        difficulty: (initialData.difficulty || "medium") as DifficultyType,
         answer: initialData.answer || "",
         analysis: initialData.analysis || "",
-        // 关键：Select 组件要求字符串匹配，但在数据层需确保 courseId 是数字
-        courseId: initialData.courseId ? Number(initialData.courseId) : 0,
+        courseId: initialData.courseId?.toString() || "",
         options: Array.isArray(opts) ? opts : [],
       });
-    } else {
-      // 新增状态下的重置
-      form.reset({
-        title: "",
-        content: "",
-        type: "single_choice",
-        difficulty: "medium",
-        answer: "",
-        analysis: "",
-        courseId: 0,
-        options: [
-          { label: "A", text: "" }, { label: "B", text: "" }, 
-          { label: "C", text: "" }, { label: "D", text: "" }
-        ],
-      });
     }
-  }, [initialData, form]);
-
-  const watchType = form.watch("type");
-  const isChoice = watchType === "single_choice" || watchType === "multiple_choice";
+  }, [initialData]);
 
   const upsertMutation = trpc.questions.upsert.useMutation({
-    onSuccess: () => { 
-      toast.success(isEdit ? "题目已更新" : "新试题录入成功"); 
-      utils.questions.list.invalidate(); 
-      onSuccess(); 
+    onSuccess: () => {
+      toast.success(isEdit ? "更新成功" : "录入成功");
+      utils.questions.list.invalidate();
+      onSuccess();
     },
-    onError: (err) => toast.error(err.message)
+    onError: (err) => {
+      // 解析 Zod 错误并友好提示
+      const msg = err.message.includes("title") ? "题目简称不能为空" : err.message;
+      toast.error(msg);
+    }
   });
 
-  const onSubmit = (values: FormValues) => {
-    if (readOnly) return;
-    const payload = {
-      ...values,
-      options: isChoice ? values.options : null,
-    };
-    upsertMutation.mutate(payload);
+  // 3. 智能答案切换逻辑
+  const toggleAnswer = (label: string) => {
+    if (formData.type === "multiple_choice") {
+      const current = (formData.answer || "").split(",").filter(Boolean);
+      const next = current.includes(label) ? current.filter(a => a !== label) : [...current, label];
+      setFormData({ ...formData, answer: next.sort().join(",") });
+    } else {
+      setFormData({ ...formData, answer: label });
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // 前端预校验
+    if (!formData.courseId) return toast.error("请选择所属课程");
+    if (!formData.title.trim()) return toast.error("题目简称不能为空");
+    if (!formData.content.trim()) return toast.error("题干内容不能为空");
+    if (!formData.answer.trim()) return toast.error("请设置标准答案");
+
+    upsertMutation.mutate({
+      ...formData,
+      id: initialData?.id,
+      courseId: parseInt(formData.courseId),
+      // 只有选择题类才上传 options 数组
+      options: isChoice ? formData.options : null,
+      analysis: formData.analysis || undefined,
+    } as any);
   };
 
   return (
     <div className="space-y-8">
-      {/* 头部展示区 */}
-      <div className="flex justify-between items-center bg-zinc-900 p-6 rounded-[2rem] text-white shadow-xl">
+      <div className="flex justify-between items-center bg-zinc-900 p-6 rounded-[2.5rem] text-white shadow-xl">
         <div className="flex items-center gap-4">
-          <div className="h-11 w-11 rounded-2xl bg-white/10 flex items-center justify-center backdrop-blur-md">
-            <Layers className="h-6 w-6 text-white" />
+          <div className="h-12 w-12 rounded-2xl bg-white/10 flex items-center justify-center backdrop-blur-md">
+            <Layers className="h-6 w-6" />
           </div>
           <div>
-            <h2 className="text-xl font-bold tracking-tight">
-              {readOnly ? "题目详情预览" : isEdit ? "编辑题目档案" : "录入新试题"}
-            </h2>
-            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-0.5">Academic Question Resource</p>
+            <h2 className="text-xl font-bold tracking-tight">{isEdit ? "修改试题" : "录入试题"}</h2>
+            <p className="text-[10px] text-zinc-400 font-black uppercase tracking-widest mt-1 italic">Comprehensive Validation Layer</p>
           </div>
         </div>
-        {initialData?.id && <Badge className="bg-white/10 text-white border-none rounded-lg px-3">REF: #{initialData.id}</Badge>}
       </div>
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          <div className="grid grid-cols-2 gap-5">
-            {/* 课程选择 - 修复不回显逻辑 */}
-            <FormField control={form.control} name="courseId" render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-[10px] font-black uppercase text-zinc-400 ml-1">所属课程</FormLabel>
-                <Select 
-                  onValueChange={(v) => field.onChange(Number(v))} 
-                  // 必须转为 string 以匹配 SelectItem
-                  value={field.value && field.value !== 0 ? field.value.toString() : undefined} 
-                  disabled={readOnly}
-                >
-                  <FormControl>
-                    <SelectTrigger className="rounded-2xl border-none bg-zinc-100 h-12 font-bold focus:ring-2 focus:ring-zinc-200">
-                      <SelectValue placeholder="请选择课程..." />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent position="popper" className="z-[250] rounded-2xl border-zinc-100 shadow-2xl">
-                    {courses?.map(c => (
-                      <SelectItem key={c.id} value={c.id.toString()} className="font-bold py-3">
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )} />
-
-            {/* 题型选择 */}
-            <FormField control={form.control} name="type" render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-[10px] font-black uppercase text-zinc-400 ml-1">试题题型</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value} disabled={readOnly}>
-                  <FormControl>
-                    <SelectTrigger className="rounded-2xl border-none bg-zinc-100 h-12 font-bold focus:ring-2 focus:ring-zinc-200">
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent position="popper" className="z-[250] rounded-2xl border-zinc-100 shadow-2xl">
-                    {Object.entries(QUESTION_TYPE_CONFIG).map(([k, v]) => (
-                      <SelectItem key={k} value={k} className="font-bold py-3">{v.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )} />
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* 第一部分：核心属性 */}
+        <div className="grid grid-cols-2 gap-5">
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase text-zinc-400 ml-1">关联课程</Label>
+            <select
+              value={formData.courseId}
+              onChange={(e) => setFormData({ ...formData, courseId: e.target.value })}
+              className="w-full h-12 rounded-2xl bg-zinc-100 px-4 font-bold text-sm appearance-none border-none shadow-inner"
+            >
+              <option value="" disabled>选择课程</option>
+              {courses?.map((c: any) => <option key={c.id} value={c.id.toString()}>{c.name}</option>)}
+            </select>
           </div>
 
-          {/* 难度选择 */}
-          <FormField control={form.control} name="difficulty" render={({ field }) => (
-            <FormItem className="space-y-2">
-              <FormLabel className="text-[10px] font-black uppercase text-zinc-400 ml-1">难度等级</FormLabel>
-              <div className="flex bg-zinc-100 p-1.5 rounded-2xl gap-2">
-                {Object.entries(DIFFICULTY_CONFIG).map(([key, cfg]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    disabled={readOnly}
-                    onClick={() => field.onChange(key)}
-                    className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase transition-all duration-300 ${
-                      field.value === key ? 'bg-white text-zinc-900 shadow-md scale-[1.02]' : 'text-zinc-400 hover:text-zinc-600'
-                    } disabled:cursor-default`}
-                  >
-                    {cfg.label}
-                  </button>
-                ))}
-              </div>
-            </FormItem>
-          )} />
-
-          <div className="space-y-5 bg-zinc-50/50 p-6 rounded-[2rem] border border-zinc-100">
-             {/* 标题回显修复 */}
-             <FormField control={form.control} name="title" render={({ field }) => (
-              <FormItem className="space-y-2">
-                <FormLabel className="text-[10px] font-black uppercase text-zinc-400 ml-1">题目简述/标题</FormLabel>
-                <FormControl>
-                  <Input 
-                    disabled={readOnly} 
-                    className="h-12 rounded-2xl border-none bg-white shadow-sm font-bold text-sm disabled:opacity-100" 
-                    {...field} 
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-
-            <FormField control={form.control} name="content" render={({ field }) => (
-              <FormItem className="space-y-2">
-                <FormLabel className="text-[10px] font-black uppercase text-zinc-400 ml-1">题干内容</FormLabel>
-                <FormControl>
-                  <Textarea 
-                    disabled={readOnly} 
-                    className="min-h-[120px] rounded-[1.5rem] border-none bg-white shadow-sm p-5 font-medium resize-none text-sm leading-relaxed disabled:opacity-100" 
-                    {...field} 
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase text-zinc-400 ml-1">题目类型</Label>
+            <select
+              value={formData.type}
+              onChange={(e) => {
+                const newType = e.target.value as QuestionType;
+                let opts = formData.options;
+                if (newType === "true_false") opts = [{ label: "T", text: "正确" }, { label: "F", text: "错误" }];
+                setFormData({ ...formData, type: newType, options: opts, answer: "" });
+              }}
+              className="w-full h-12 rounded-2xl bg-zinc-100 px-4 font-bold text-sm appearance-none border-none shadow-inner"
+            >
+              {Object.entries(QUESTION_TYPE_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
           </div>
+        </div>
 
-          {/* 选择题选项 */}
-          {isChoice && (
-            <div className="space-y-4 animate-in slide-in-from-top-2">
-              <div className="flex justify-between items-center px-2">
-                <span className="text-[10px] font-black uppercase text-zinc-400 tracking-widest flex items-center gap-2">选项配置</span>
-                {!readOnly && (
-                  <Button type="button" variant="ghost" size="sm" className="h-8 rounded-full text-[10px] font-bold" onClick={() => append({ label: String.fromCharCode(65 + fields.length), text: "" })}>
-                    添加选项
-                  </Button>
-                )}
-              </div>
-              <div className="grid gap-3">
-                {fields.map((fieldItem, index) => (
-                  <div key={fieldItem.id} className="flex items-center gap-3">
-                    <div className="h-10 w-10 flex-shrink-0 rounded-xl bg-zinc-900 text-white flex items-center justify-center font-black text-xs shadow-lg">{fields[index].label}</div>
-                    <FormField control={form.control} name={`options.${index}.text`} render={({ field }) => (
-                      <FormItem className="flex-1 space-y-0">
-                        <FormControl>
-                          <Input disabled={readOnly} className="h-11 rounded-xl border-none bg-zinc-100 font-bold text-sm disabled:opacity-100" {...field} />
-                        </FormControl>
-                      </FormItem>
-                    )} />
-                    {!readOnly && (
-                      <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-zinc-300 hover:text-red-500" onClick={() => remove(index)}><X className="h-4 w-4" /></Button>
+        {/* 第二部分：题干与简称（解决 title 丢失问题） */}
+        <div className="space-y-5 bg-zinc-50/50 p-6 rounded-[2.5rem] border border-zinc-100 shadow-sm">
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase text-zinc-400 ml-1">题目简称 (必填)</Label>
+            <Input 
+              value={formData.title} 
+              onChange={e => setFormData({ ...formData, title: e.target.value })} 
+              className="h-12 rounded-2xl border-none bg-white font-bold"
+              placeholder="用于列表展示的精简标题..."
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase text-zinc-400 ml-1">详细题干内容</Label>
+            <Textarea 
+              value={formData.content} 
+              onChange={e => setFormData({ ...formData, content: e.target.value })} 
+              className="min-h-[120px] rounded-2xl border-none bg-white p-5 font-medium shadow-sm"
+              placeholder="请输入完整的题目描述..."
+            />
+          </div>
+        </div>
+
+        {/* 第三部分：动态选项与智能答案 */}
+        {isChoice ? (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center px-1">
+              <Label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest">
+                {formData.type === 'true_false' ? '判断设置 (锁定)' : '选项列表'}
+              </Label>
+              {formData.type !== 'true_false' && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setFormData(p => ({ ...p, options: [...p.options, { label: String.fromCharCode(65 + p.options.length), text: "" }] }))}>
+                  <Plus className="h-3 w-3 mr-1" /> 增加备选项
+                </Button>
+              )}
+            </div>
+            
+            <div className="grid gap-3">
+              {formData.options.map((opt, idx) => {
+                const isSelected = formData.answer.split(",").includes(opt.label);
+                return (
+                  <div key={idx} className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleAnswer(opt.label)}
+                      className={`h-11 w-11 shrink-0 rounded-xl flex items-center justify-center font-black text-xs transition-all ${
+                        isSelected ? "bg-emerald-500 text-white shadow-lg ring-4 ring-emerald-100" : "bg-zinc-200 text-zinc-400"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                    <Input 
+                      value={opt.text} 
+                      readOnly={formData.type === 'true_false'}
+                      onChange={e => {
+                        const newOpts = [...formData.options];
+                        newOpts[idx].text = e.target.value;
+                        setFormData({...formData, options: newOpts});
+                      }} 
+                      className="h-11 rounded-xl border-none bg-zinc-100 font-bold"
+                    />
+                    {formData.type !== 'true_false' && (
+                      <Button type="button" variant="ghost" size="icon" onClick={() => setFormData(p => ({ ...p, options: p.options.filter((_, i) => i !== idx), answer: "" }))}>
+                        <X className="h-4 w-4 text-zinc-300" />
+                      </Button>
                     )}
                   </div>
-                ))}
+                );
+              })}
+            </div>
+
+            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase text-emerald-600 ml-2 italic">当前选定的标准答案:</span>
+              <div className="flex gap-2">
+                {formData.answer ? formData.answer.split(",").map(a => (
+                  <Badge key={a} className="bg-emerald-600 px-3 py-1 rounded-lg border-none">{a}</Badge>
+                )) : <span className="text-[10px] text-emerald-300 font-bold">请点击左侧字母设置答案</span>}
               </div>
             </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-5 p-6 bg-zinc-50/50 rounded-[2rem] border border-zinc-100">
-            <FormField control={form.control} name="answer" render={({ field }) => (
-              <FormItem className="space-y-2">
-                <FormLabel className="text-[10px] font-black uppercase text-zinc-400 ml-1">标准参考答案</FormLabel>
-                <FormControl>
-                  <Input disabled={readOnly} className="rounded-xl border-none bg-white shadow-sm h-11 font-black text-sm text-emerald-600 disabled:opacity-100" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={form.control} name="analysis" render={({ field }) => (
-              <FormItem className="space-y-2">
-                <FormLabel className="text-[10px] font-black uppercase text-amber-500 ml-1 flex items-center gap-1"><Sparkles className="h-3 w-3" /> 详解解析</FormLabel>
-                <FormControl>
-                  <Input disabled={readOnly} className="rounded-xl border-none bg-amber-50/50 shadow-sm h-11 font-medium text-xs text-amber-700 disabled:opacity-100" {...field} />
-                </FormControl>
-              </FormItem>
-            )} />
           </div>
+        ) : (
+          /* 非选择类答案区 */
+          <div className="space-y-4">
+             <Label className="text-[10px] font-black uppercase text-zinc-400 ml-1">
+                {formData.type === 'programming' ? '编程参考实现 (代码风格)' : '标准参考答案内容'}
+             </Label>
+             <Textarea 
+                value={formData.answer} 
+                onChange={e => setFormData({ ...formData, answer: e.target.value })}
+                className={`w-full rounded-[2.5rem] border-none p-8 shadow-inner ${
+                  formData.type === 'programming' ? 'bg-zinc-900 text-emerald-400 font-mono min-h-[350px]' : 'bg-zinc-100 min-h-[180px]'
+                }`}
+                placeholder={formData.type === 'programming' ? "// 在此输入代码..." : "请输入标准答案内容..."}
+             />
+          </div>
+        )}
 
-          {!readOnly && (
-            <div className="pt-4">
-              <Button type="submit" disabled={upsertMutation.isPending} className="w-full h-16 rounded-[2rem] bg-zinc-900 text-white font-bold text-base shadow-2xl hover:scale-[1.01] transition-all">
-                {upsertMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-6 w-6" />}
-                <span>{isEdit ? "更新题目档案" : "确认录入题库"}</span>
-              </Button>
-            </div>
-          )}
-        </form>
-      </Form>
+        <div className="space-y-2">
+          <Label className="text-[10px] font-black uppercase text-amber-500 ml-1 flex items-center gap-1">
+            <Sparkles className="h-3 w-3" /> 题目解析与思路说明
+          </Label>
+          <Textarea 
+            value={formData.analysis} 
+            onChange={e => setFormData({ ...formData, analysis: e.target.value })} 
+            className="rounded-2xl border-none bg-amber-50/50 p-4 text-sm shadow-inner min-h-[100px]"
+            placeholder="此内容仅在考试结束后对学生可见..."
+          />
+        </div>
+
+        {!readOnly && (
+          <Button type="submit" disabled={upsertMutation.isPending} className="w-full h-16 rounded-[2.5rem] bg-zinc-900 text-white font-bold text-base shadow-2xl active:scale-95 transition-all">
+            {upsertMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-6 w-6 mr-2" />}
+            {isEdit ? "确认更新题目" : "保存并存入题库"}
+          </Button>
+        )}
+      </form>
     </div>
   );
 }

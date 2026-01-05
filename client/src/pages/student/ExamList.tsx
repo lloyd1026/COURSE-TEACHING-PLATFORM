@@ -1,99 +1,221 @@
-import { useState } from "react";
+"use client";
+
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
-import { Search, ClipboardList, Loader2 } from "lucide-react";
+import { 
+  ClipboardList, Loader2, Calendar, 
+  Timer, ChevronRight, Trophy, BookOpen, Clock, Activity, CheckCircle2 
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+
+// 引用通用组件
+import { SearchFilterBar } from "@/components/common/SearchFilterBar";
+import { FilterTabs } from "@/components/common/FilterGroup";
+import { Pagination } from "@/components/common/Pagination";
 
 export default function StudentExamList() {
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [now, setNow] = useState(new Date()); 
+  const pageSize = 6;
 
+  // 每分钟更新一次当前时间，确保状态准时切换
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 1. 获取考试列表 (后端 getExamsByStudent 已包含 hasSubmitted 和 submissionDetails)
   const { data: exams, isLoading } = trpc.exams.list.useQuery();
 
-  const getStatusBadge = (status: string, startTime: Date) => {
-    const now = new Date();
-    const start = new Date(startTime);
-    if (status === 'ended') {
-      return <Badge variant="secondary">已结束</Badge>;
-    }
-    if (status === 'ongoing' || (start <= now)) {
-      return <Badge className="bg-green-100 text-green-800">进行中</Badge>;
-    }
-    return <Badge variant="outline">未开始</Badge>;
+  const STATUS_CONFIG: any = {
+    all: { label: "全部考试" },
+    not_started: { label: "未开始", color: "text-blue-500", bg: "bg-blue-50/50", icon: Clock },
+    in_progress: { label: "进行中", color: "text-emerald-500", bg: "bg-emerald-50/50", icon: Activity },
+    ended: { label: "已结束", color: "text-zinc-400", bg: "bg-zinc-100/50", icon: CheckCircle2 },
   };
 
-  const filteredExams = exams?.filter((e: any) =>
-    e.title.toLowerCase().includes(search.toLowerCase())
+  // 2. 综合筛选
+  const filteredExams = useMemo(() => {
+    return (exams || []).filter((e: any) => {
+      const matchSearch = !search || e.title.toLowerCase().includes(search.toLowerCase());
+      const matchStatus = statusFilter === "all" || e.status === statusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [exams, search, statusFilter]);
+
+  const pagedExams = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredExams.slice(start, start + pageSize);
+  }, [filteredExams, currentPage]);
+
+  if (isLoading) return (
+    <div className="h-screen flex items-center justify-center bg-[#F5F5F7]">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-zinc-900" />
+        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">正在同步考试状态...</p>
+      </div>
+    </div>
   );
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">我的考试</h1>
-          <p className="text-muted-foreground">查看考试安排和成绩</p>
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-blue-50/10 rounded-full blur-[120px]" />
+      </div>
+
+      <div className="relative h-[calc(100vh-4rem)] flex flex-col max-w-5xl mx-auto px-8 py-10 overflow-hidden font-sans">
+        
+        <header className="flex-shrink-0 flex justify-between items-end mb-10">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-900">我的考试</h1>
+            <p className="text-zinc-400 text-[10px] mt-2 tracking-[0.3em] uppercase font-black">Examination & Performance</p>
+          </div>
+        </header>
+
+        <div className="flex-shrink-0 space-y-6 mb-10">
+          <SearchFilterBar onSearch={setSearch} placeholder="搜索考试标题或课程..." />
+          <FilterTabs
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={Object.entries(STATUS_CONFIG).map(([key, cfg]: any) => ({
+              label: cfg.label,
+              value: key,
+            }))}
+          />
         </div>
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex gap-4 mb-6">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="搜索考试..."
-                  className="pl-10"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-            </div>
+        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar pb-10">
+          {pagedExams.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {pagedExams.map((exam: any) => {
+                const status = STATUS_CONFIG[exam.status] || STATUS_CONFIG.not_started;
+                
+                const startTime = new Date(exam.startTime);
+                const endTime = new Date(startTime.getTime() + exam.duration * 60000);
+                
+                // ⚡️ 直接使用后端聚合好的 hasSubmitted 字段
+                const hasSubmitted = exam.hasSubmitted;
+                const submission = exam.submissionDetails;
 
-            {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : filteredExams && filteredExams.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>考试名称</TableHead>
-                    <TableHead>开始时间</TableHead>
-                    <TableHead>时长</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredExams.map((exam: any) => (
-                    <TableRow key={exam.id}>
-                      <TableCell className="font-medium">{exam.title}</TableCell>
-                      <TableCell>{new Date(exam.startTime).toLocaleString()}</TableCell>
-                      <TableCell>{exam.duration}分钟</TableCell>
-                      <TableCell>{getStatusBadge(exam.status || 'draft', exam.startTime)}</TableCell>
-                      <TableCell>
-                        <Link href={`/student/exams/${exam.id}`}>
-                          <Button variant="ghost" size="sm">
-                            {exam.status === 'ongoing' ? '进入考试' : '查看'}
+                const isOngoing = now >= startTime && now <= endTime;
+                // 核心判定：进行中且未提交过
+                const canTake = isOngoing && exam.status !== 'ended' && !hasSubmitted; 
+                const isResultReady = exam.status === 'ended' && exam.resultsPublished === true;
+
+                return (
+                  <div 
+                    key={exam.id} 
+                    className={`group relative bg-white/70 backdrop-blur-2xl border border-white/60 rounded-[2.5rem] p-7 shadow-sm hover:shadow-xl transition-all duration-500 flex flex-col justify-between ${hasSubmitted ? 'opacity-90' : ''}`}
+                  >
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-start">
+                        {hasSubmitted ? (
+                          <Badge className="rounded-full border-none px-4 py-1 text-[10px] font-black uppercase tracking-widest bg-zinc-900 text-white shadow-lg">
+                            已交卷
+                          </Badge>
+                        ) : (
+                          <Badge className={`rounded-full border-none px-4 py-1 text-[10px] font-black uppercase tracking-widest ${status.bg} ${status.color}`}>
+                            {status.label}
+                          </Badge>
+                        )}
+                        <div className={`h-10 w-10 rounded-xl bg-zinc-50 flex items-center justify-center transition-all shadow-inner ${hasSubmitted ? 'text-emerald-500' : 'text-zinc-300 group-hover:bg-zinc-900 group-hover:text-white'}`}>
+                          {hasSubmitted ? <CheckCircle2 className="h-5 w-5" /> : <Trophy className="h-5 w-5" />}
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-lg font-bold text-zinc-800 line-clamp-1 mb-1">{exam.title}</h4>
+                        <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-tighter flex items-center gap-1.5">
+                          <BookOpen className="h-3 w-3" /> {exam.courseName}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 pt-2">
+                        <div className="flex items-center gap-2 text-zinc-500">
+                          <Calendar className="h-4 w-4 opacity-40" />
+                          <span className="text-[11px] font-bold">{startTime.toLocaleDateString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-zinc-500">
+                          <Timer className="h-4 w-4 opacity-40" />
+                          <span className="text-[11px] font-bold">{exam.duration} 分钟</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-8 pt-6 border-t border-zinc-100/50 flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-black text-zinc-300 uppercase">
+                          {hasSubmitted ? "当前得分" : "考试时间"}
+                        </span>
+                        <span className={`text-[11px] font-bold ${hasSubmitted ? 'text-emerald-600 text-lg' : 'text-zinc-600'}`}>
+                          {hasSubmitted 
+                            ? (submission?.status === 'graded' ? `${submission.totalScore} 分` : '待教师批阅')
+                            : `${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')} - ${endTime.getHours().toString().padStart(2, '0')}:${endTime.getMinutes().toString().padStart(2, '0')}`
+                          }
+                        </span>
+                      </div>
+                      
+                      {hasSubmitted ? (
+                        isResultReady ? (
+                          <Link href={`/student/exams/${exam.id}/result`}>
+                            <Button className="rounded-full px-6 h-10 text-[11px] font-black uppercase tracking-widest bg-zinc-900 text-white hover:bg-black transition-all">
+                              查看解析
+                              <ChevronRight className="ml-1.5 h-3.5 w-3.5" />
+                            </Button>
+                          </Link>
+                        ) : (
+                          <Button disabled className="rounded-full px-6 h-10 text-[11px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-500 border-none cursor-not-allowed">
+                            交卷成功
+                          </Button>
+                        )
+                      ) : canTake ? (
+                        <Link href={`/student/exams/${exam.id}/take`}>
+                          <Button className="rounded-full px-6 h-10 text-[11px] font-black uppercase tracking-widest bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-100 animate-pulse transition-all">
+                            参加考试
+                            <ChevronRight className="ml-1.5 h-3.5 w-3.5" />
                           </Button>
                         </Link>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <div className="text-center py-12">
-                <ClipboardList className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <p className="text-muted-foreground">暂无考试</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                      ) : (
+                        <Button disabled className="rounded-full px-6 h-10 text-[11px] font-black uppercase tracking-widest bg-zinc-100 text-zinc-300 border-none cursor-not-allowed">
+                          {now < startTime ? "尚未开始" : "已截止"}
+                        </Button>
+                      )}
+                    </div>
+
+                    {canTake && (
+                      <div className="absolute top-4 right-4 h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-zinc-300 space-y-4">
+              <ClipboardList className="h-12 w-12 opacity-10" />
+              <p className="text-[10px] font-black uppercase tracking-[0.2em]">暂无相关考试</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-none mt-6">
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredExams.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+          />
+        </div>
       </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 10px; }
+      `}} />
     </DashboardLayout>
   );
 }

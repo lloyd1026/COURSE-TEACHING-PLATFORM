@@ -1,18 +1,18 @@
 import { useState } from "react";
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogDescription 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
 } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -29,14 +29,14 @@ interface ImportDialogProps {
 export function ImportQuestionsDialog({ isOpen, onOpenChange, onSuccess }: ImportDialogProps) {
   const [targetCourseId, setTargetCourseId] = useState<string>("");
   const [isParsing, setIsParsing] = useState(false);
-  
+
   const utils = trpc.useUtils();
   const { data: courses } = trpc.courses.list.useQuery();
 
   // 导入 Mutation
   const importMutation = trpc.questions.import.useMutation({
     onSuccess: (res) => {
-      toast.success(res.message || "导入成功");
+      toast.success(res.count ? `成功导入 ${res.count} 题` : "导入成功");
       utils.questions.list.invalidate();
       onOpenChange(false);
       onSuccess();
@@ -171,17 +171,16 @@ export function ImportQuestionsDialog({ isOpen, onOpenChange, onSuccess }: Impor
           {/* 2. 文件上传区域 */}
           <div className="space-y-2">
             <label className="text-[10px] font-black uppercase text-zinc-400 ml-1">第二步：上传 Excel 文件</label>
-            <div className={`relative h-32 border-2 border-dashed rounded-[2rem] flex flex-col items-center justify-center transition-all ${
-              !targetCourseId 
-                ? "bg-zinc-50 border-zinc-100 opacity-50 cursor-not-allowed" 
+            <div className={`relative h-32 border-2 border-dashed rounded-[2rem] flex flex-col items-center justify-center transition-all ${!targetCourseId
+                ? "bg-zinc-50 border-zinc-100 opacity-50 cursor-not-allowed"
                 : "bg-zinc-50 border-zinc-200 hover:border-zinc-900 hover:bg-zinc-100 cursor-pointer"
-            }`}>
-              <input 
-                type="file" 
-                accept=".xlsx,.xls" 
-                onChange={handleFile} 
+              }`}>
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFile}
                 disabled={!targetCourseId || isParsing || importMutation.isPending}
-                className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed z-10" 
+                className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
               />
               {isParsing || importMutation.isPending ? (
                 <div className="flex flex-col items-center gap-2">
@@ -200,16 +199,16 @@ export function ImportQuestionsDialog({ isOpen, onOpenChange, onSuccess }: Impor
 
         {/* 底部按钮栏 */}
         <div className="flex gap-3">
-          <Button 
-            variant="ghost" 
-            onClick={downloadImportTemplate} 
+          <Button
+            variant="ghost"
+            onClick={downloadImportTemplate}
             className="flex-1 h-12 rounded-2xl text-xs font-bold text-zinc-500 gap-2 hover:bg-zinc-50"
           >
             <FileDown className="h-4 w-4" /> 模板下载
           </Button>
-          <Button 
-            variant="outline" 
-            onClick={() => onOpenChange(false)} 
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
             className="flex-1 h-12 rounded-2xl text-xs font-bold border-zinc-200"
           >
             取消

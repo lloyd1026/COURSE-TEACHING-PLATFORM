@@ -16,11 +16,11 @@ import { invokeLLM } from "./_core/llm";
 import * as auth from "./auth";
 import { sdk } from "./_core/sdk";
 import { ENV } from "./_core/env";
-import * as fs from 'fs/promises';
-import { exec } from 'child_process';
-import * as path from 'path';
-import * as os from 'os';
-import { promisify } from 'util';
+import * as fs from "fs/promises";
+import { exec } from "child_process";
+import * as path from "path";
+import * as os from "os";
+import { promisify } from "util";
 
 const execAsync = promisify(exec);
 
@@ -30,6 +30,7 @@ import { submissionRouter } from "./routers/submissions";
 // 考试路由
 import { examRouter } from "./routers/exams";
 import { assignmentRouter } from "./routers/assignments";
+import { questionsRouter } from "./routers/questions";
 
 export const appRouter = router({
   system: systemRouter,
@@ -240,38 +241,20 @@ export const appRouter = router({
         return await db.getCourseById(input.id);
       }),
 
-    create: teacherProcedure
+    upsert: teacherProcedure
       .input(
         z.object({
-          name: z.string(),
-          code: z.string(),
-          description: z.string(),
+          id: z.number().optional(), // 有 ID 则更新，无 ID 则创建
+          name: z.string().min(1, "课程名称必填"),
+          code: z.string().min(1, "识别代码必填"),
+          description: z.string().optional(), // 课程大纲富文本
           semester: z.string(),
           credits: z.number(),
-          // teacherId: z.number(),  // 使用session中的用户ID，防止其他教师冒用
           status: z.enum(["draft", "active", "archived"]).default("draft"),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        return await db.createCourse({
-          ...input,
-          teacherId: ctx.user.id,
-        });
-      }),
-
-    update: protectedProcedure
-      .input(
-        z.object({
-          id: z.number(),
-          name: z.string().optional(),
-          description: z.string().optional(),
-          semester: z.string().optional(),
-          status: z.enum(["draft", "active", "archived"]).optional(),
-        })
-      )
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        return await db.updateCourse(id, data);
+        return await db.upsertCourse(ctx.user.id, input);
       }),
 
     delete: protectedProcedure
@@ -417,75 +400,7 @@ export const appRouter = router({
   assignments: assignmentRouter,
 
   // ==================== 题库管理 ====================
-  questions: router({
-    /**
-     * 列表查询：角色分流
-     * 教师端现在会额外返回 questionCount 和 totalScore
-     */
-    list: protectedProcedure
-      .input(
-        z
-          .object({
-            courseId: z.number().optional(),
-            search: z.string().optional(),
-          })
-          .optional()
-      ) // 让 input 可选
-      .query(async ({ ctx, input }) => {
-        return await db.getQuestionsByTeacher(ctx.user.id, {
-          courseId: input?.courseId,
-          search: input?.search,
-        });
-      }),
-
-    /**
-     * 详情获取：
-     * 返回值现在包含 classIds 数组和 questions 对象数组
-     */
-    get: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        const data = await getAssignmentById(input.id);
-        if (!data) throw new Error("该作业记录不存在");
-        return data;
-      }),
-
-    /**
-     * 核心保存接口：新增或更新
-     * 增加 selectedQuestions 校验
-     */
-    upsert: teacherProcedure
-      .input(
-        z.object({
-          id: z.number().optional(),
-          title: z.string().min(1, "题目简称不能为空"),
-          content: z.string().min(1, "题干正文不能为空"),
-          type: z.enum(["single_choice", "multiple_choice", "fill_blank", "true_false", "essay", "programming"]),
-          difficulty: z.enum(["easy", "medium", "hard"]),
-          answer: z.string().min(1, "正确答案不能为空"),
-          analysis: z.string().optional(),
-          courseId: z.number().min(1, "请选择所属课程"),
-          options: z.any().optional().nullable(), // 这里接收选项数组
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        return await db.upsertQuestion(ctx.user.id, input);
-      }),
-
-    /**
-     * 删除作业
-     */
-    delete: teacherProcedure
-      .input(
-        z.object({
-          ids: z.array(z.number()),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        // 这里的逻辑会去 DB 层执行引用检查
-        return await db.deleteQuestionsBulk(input.ids, ctx.user.id);
-      }),
-  }),
+  questions: questionsRouter,
 
   // ==================== 考试管理 ====================
   exams: examRouter,
@@ -627,7 +542,10 @@ export const appRouter = router({
         })
       )
       .query(async ({ input }) => {
-        return await db.getKnowledgePointsByEntity(input.entityType, input.entityId);
+        return await db.getKnowledgePointsByEntity(
+          input.entityType,
+          input.entityId
+        );
       }),
   }),
 
@@ -648,9 +566,15 @@ export const appRouter = router({
 
         // Get student record
         const dbInstance = await db.getDb();
-        if (!dbInstance) return experiments.map((e: any) => ({ ...e, submissionStatus: null }));
+        if (!dbInstance)
+          return experiments.map((e: any) => ({
+            ...e,
+            submissionStatus: null,
+          }));
 
-        const { students, experimentSubmissions } = await import("../drizzle/schema");
+        const { students, experimentSubmissions } = await import(
+          "../drizzle/schema"
+        );
         const { eq, and } = await import("drizzle-orm");
 
         const studentResult = await dbInstance
@@ -660,7 +584,11 @@ export const appRouter = router({
           .limit(1);
 
         if (!studentResult[0]) {
-          return experiments.map((e: any) => ({ ...e, submissionStatus: null, submissionScore: null }));
+          return experiments.map((e: any) => ({
+            ...e,
+            submissionStatus: null,
+            submissionScore: null,
+          }));
         }
 
         const studentId = studentResult[0].id;
@@ -672,7 +600,9 @@ export const appRouter = router({
           .where(eq(experimentSubmissions.studentId, studentId));
 
         // Map submissions to experiments
-        const submissionMap = new Map(submissions.map(s => [s.experimentId, s]));
+        const submissionMap = new Map(
+          submissions.map(s => [s.experimentId, s])
+        );
 
         return experiments.map((e: any) => {
           const sub = submissionMap.get(e.id);
@@ -759,7 +689,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         // 1. Get Student ID
-        const studentRecord = await db.getDb().then(async (database) => {
+        const studentRecord = await db.getDb().then(async database => {
           if (!database) throw new Error("Database not available");
           const { students } = await import("../drizzle/schema");
           const { eq } = await import("drizzle-orm");
@@ -801,7 +731,10 @@ export const appRouter = router({
         // 1. Fetch Experiment Context
         const experiment = await db.getExperimentById(input.experimentId);
         if (!experiment) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Experiment not found" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Experiment not found",
+          });
         }
 
         // 2. Invoke AI
@@ -829,22 +762,25 @@ Task:
 
           const aiResult = await invokeLLM({
             messages: [{ role: "user", content: prompt }],
-            response_format: { type: "json_object" }
+            response_format: { type: "json_object" },
           });
 
           const content = aiResult.choices[0].message.content;
-          if (typeof content === 'string') {
+          if (typeof content === "string") {
             const parsed = JSON.parse(content);
             return {
               score: parsed.score || 0,
               feedback: parsed.feedback || "No feedback generated",
-              suggestions: parsed.suggestions || ""
+              suggestions: parsed.suggestions || "",
             };
           }
           throw new Error("Invalid AI response");
         } catch (error) {
           console.error("AI Check failed:", error);
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI Check service unavailable" });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "AI Check service unavailable",
+          });
         }
       }),
 
@@ -858,7 +794,7 @@ Task:
       )
       .mutation(async ({ ctx, input }) => {
         // 1. Get Student ID
-        const studentRecord = await db.getDb().then(async (database) => {
+        const studentRecord = await db.getDb().then(async database => {
           if (!database) throw new Error("Database not available");
           const { students } = await import("../drizzle/schema");
           const { eq } = await import("drizzle-orm");
@@ -880,7 +816,10 @@ Task:
         // 2. Fetch Experiment Details (for AI Context)
         const experiment = await db.getExperimentById(input.experimentId);
         if (!experiment) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Experiment not found" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Experiment not found",
+          });
         }
 
         // 3. Submit Code (Status: submitted)
@@ -918,11 +857,11 @@ Task:
 
           const aiResult = await invokeLLM({
             messages: [{ role: "user", content: prompt }],
-            response_format: { type: "json_object" }
+            response_format: { type: "json_object" },
           });
 
           const content = aiResult.choices[0].message.content;
-          if (typeof content === 'string') {
+          if (typeof content === "string") {
             const parsed = JSON.parse(content);
 
             // Update submission with AI result
@@ -932,11 +871,16 @@ Task:
               evaluationResult: {
                 ...parsed,
                 aiScore: parsed.score, // Explicitly store for Teacher UI
-                status: "evaluated"
-              }
+                status: "evaluated",
+              },
             });
 
-            return { ...submission, status: 'evaluated', score: parsed.score, feedback: parsed.feedback };
+            return {
+              ...submission,
+              status: "evaluated",
+              score: parsed.score,
+              feedback: parsed.feedback,
+            };
           }
         } catch (error) {
           console.error("AI Grading process failed:", error);
@@ -948,46 +892,48 @@ Task:
 
     // 运行/调试代码 (Code Runner)
     run: protectedProcedure
-      .input(z.object({
-        code: z.string(),
-        language: z.string(),
-      }))
+      .input(
+        z.object({
+          code: z.string(),
+          language: z.string(),
+        })
+      )
       .mutation(async ({ input }) => {
         const { code, language } = input;
 
         // Setup temp file
         const tmpDir = os.tmpdir();
         const runId = Math.random().toString(36).substring(7);
-        let cmd = '';
-        let filePath = '';
-        let outPath = '';
+        let cmd = "";
+        let filePath = "";
+        let outPath = "";
 
         try {
-          if (language === 'javascript') {
+          if (language === "javascript") {
             filePath = path.join(tmpDir, `${runId}.js`);
             await fs.writeFile(filePath, code);
             cmd = `node "${filePath}"`;
-          } else if (language === 'python') {
+          } else if (language === "python") {
             filePath = path.join(tmpDir, `${runId}.py`);
             await fs.writeFile(filePath, code);
             cmd = `python3 "${filePath}"`;
-          } else if (language === 'cpp' || language === 'c++') {
+          } else if (language === "cpp" || language === "c++") {
             filePath = path.join(tmpDir, `${runId}.cpp`);
             outPath = path.join(tmpDir, `${runId}.out`);
             await fs.writeFile(filePath, code);
             // Compile and run
             cmd = `g++ "${filePath}" -o "${outPath}" && "${outPath}"`;
           } else {
-            return { output: 'Unsupported language', error: true };
+            return { output: "Unsupported language", error: true };
           }
 
           const { stdout, stderr } = await execAsync(cmd, { timeout: 5000 });
           return { output: stdout || stderr, error: false };
-
         } catch (error: any) {
           // Exec failed (compile error or runtime error)
           // Error object from exec usually contains stdout/stderr
-          const output = error.stderr || error.stdout || error.message || 'Unknown error';
+          const output =
+            error.stderr || error.stdout || error.message || "Unknown error";
           return { output: output, error: true };
         } finally {
           // Cleanup type: fire and forget
@@ -1016,7 +962,7 @@ Task:
       .query(async ({ ctx, input }) => {
         // ... (existing logic)
         // 获取学生 ID
-        const studentRecord = await db.getDb().then(async (database) => {
+        const studentRecord = await db.getDb().then(async database => {
           if (!database) return null;
           const { students } = await import("../drizzle/schema");
           const { eq } = await import("drizzle-orm");
@@ -1030,17 +976,25 @@ Task:
 
         if (!studentRecord) return null;
 
-        return await db.getStudentSubmission(input.experimentId, studentRecord.id);
+        return await db.getStudentSubmission(
+          input.experimentId,
+          studentRecord.id
+        );
       }),
 
     // 获取特定学生的提交详情 (Teacher View - for Grading Dialog)
     getStudentSubmission: teacherProcedure
-      .input(z.object({
-        experimentId: z.number(),
-        studentId: z.number() // This is the student.id (not userId)
-      }))
+      .input(
+        z.object({
+          experimentId: z.number(),
+          studentId: z.number(), // This is the student.id (not userId)
+        })
+      )
       .query(async ({ input }) => {
-        return await db.getStudentSubmission(input.experimentId, input.studentId);
+        return await db.getStudentSubmission(
+          input.experimentId,
+          input.studentId
+        );
       }),
 
     // 评测提交（模拟评测）
@@ -1156,13 +1110,19 @@ Task:
         const dbInstance = await db.getDb();
         if (!dbInstance) throw new Error("Database not available");
 
-        const { aiConversations, aiMessages } = await import("../drizzle/schema");
+        const { aiConversations, aiMessages } = await import(
+          "../drizzle/schema"
+        );
         const { eq } = await import("drizzle-orm");
 
         // Delete messages first (foreign key constraint)
-        await dbInstance.delete(aiMessages).where(eq(aiMessages.conversationId, input.conversationId));
+        await dbInstance
+          .delete(aiMessages)
+          .where(eq(aiMessages.conversationId, input.conversationId));
         // Delete conversation
-        await dbInstance.delete(aiConversations).where(eq(aiConversations.id, input.conversationId));
+        await dbInstance
+          .delete(aiConversations)
+          .where(eq(aiConversations.id, input.conversationId));
 
         return { success: true };
       }),
