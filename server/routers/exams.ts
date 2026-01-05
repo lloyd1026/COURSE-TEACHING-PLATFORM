@@ -22,7 +22,7 @@ export const examRouter = router({
       return [];
     }),
 
-  // 获取单场考试详情
+  // 获取单场考试详情（学生答题面板）
   get: protectedProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {

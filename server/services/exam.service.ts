@@ -120,31 +120,36 @@ export async function getExamById(id: number) {
   const db = await getDb();
   if (!db) return null;
 
-  // 1. 获取考试主表信息
+  // 1. 获取考试主表信息 (保持不变)
   const examResult = await db
-    .select()
+    .select({
+      ...getTableColumns(exams),
+      courseName: courses.name
+    })
     .from(exams)
+    .innerJoin(courses, eq(exams.courseId, courses.id))
     .where(eq(exams.id, id))
     .limit(1);
   
   if (examResult.length === 0) return null;
   const exam = examResult[0];
 
-  // 2. 获取关联班级 ID
+  // 2. 获取关联班级 ID (保持不变)
   const classRelations = await db
     .select({ classId: examClasses.classId })
     .from(examClasses)
     .where(eq(examClasses.examId, id));
 
-  // 3. ✅ 核心修复：获取关联题目信息
-  // 我们需要查出题目 ID、标题、类型以及在这场考试中设定的分值
+  // 3. 获取关联题目信息
   const questionRelations = await db
     .select({
-      id: questions.id,           // 题目原始 ID
-      questionId: questions.id,   // 别名，适配前端 Selector
-      title: questions.title,     // 题目预览标题
-      type: questions.type,       // 题目类型
-      score: examQuestions.score, // 关键：这场考试里这道题值多少分
+      id: questions.id,
+      questionId: questions.id,
+      title: questions.title,
+      content: questions.content,
+      type: questions.type,
+      options: questions.options, // 这里拿到的可能是字符串
+      score: examQuestions.score,
       order: examQuestions.questionOrder,
     })
     .from(examQuestions)
@@ -152,11 +157,31 @@ export async function getExamById(id: number) {
     .where(eq(examQuestions.examId, id))
     .orderBy(examQuestions.questionOrder);
 
-  // 4. 合并返回
+  // 4. ✅ 核心修复：对返回的题目进行预处理，确保 options 是对象数组
+  const processedQuestions = questionRelations.map(q => {
+    let finalOptions = q.options;
+    
+    // 如果 options 是字符串类型，则进行解析
+    if (typeof q.options === 'string') {
+      try {
+        finalOptions = JSON.parse(q.options);
+      } catch (e) {
+        console.error(`解析题目 ID ${q.id} 的 options 失败:`, e);
+        finalOptions = []; // 解析失败则降级为空数组
+      }
+    }
+
+    return {
+      ...q,
+      options: finalOptions
+    };
+  });
+
+  // 5. 合并返回
   return {
     ...exam,
     classIds: classRelations.map(r => r.classId),
-    questions: questionRelations, 
+    questions: processedQuestions, // 使用处理后的题目列表
   };
 }
 
