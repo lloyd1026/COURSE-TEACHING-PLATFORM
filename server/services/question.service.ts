@@ -201,25 +201,38 @@ export async function deleteQuestionsBulk(ids: number[], teacherId: number) {
 /**
  * --- 批量导入逻辑 ---
  */
+
 export async function importQuestionsBulk(teacherId: number, questionsData: any[]) {
   const db = await getDb();
   if (!db) throw new Error("数据库连接失败");
 
   return await db.transaction(async (tx) => {
-    const values = questionsData.map((q) => ({
-      courseId: q.courseId,
-      type: q.type,
-      title: q.title || String(q.content).substring(0, 50),
-      content: q.content,
-      options: q.options ? JSON.stringify(q.options) : null,
-      answer: String(q.answer || ""),
-      analysis: q.analysis || "",
-      difficulty: q.difficulty || "medium",
-      createdBy: teacherId,
-      status: "active" as const,
-    }));
+    try {
+      const values = questionsData.map((q, index) => {
+        return {
+          courseId: q.courseId,
+          type: q.type,
+          title: q.title || String(q.content).substring(0, 50),
+          content: q.content,
+          options: q.options ? (typeof q.options === 'string' ? q.options : JSON.stringify(q.options)) : null,
+          answer: String(q.answer || ""),
+          analysis: q.analysis || "",
+          difficulty: q.difficulty || "medium",
+          createdBy: teacherId,
+          status: "active" as const,
+        };
+      });
 
-    await tx.insert(questions).values(values);
-    return { success: true, count: values.length };
+      await tx.insert(questions).values(values);
+      return { success: true, count: values.length };
+    } catch (error: any) {
+      // 捕获具体的数据库错误（如：Unknown column, Data too long 等）
+      console.error("🔥 [Database Error] 写入失败:");
+      console.error("错误消息:", error.message);
+      console.error("错误代码:", error.code); // 比如 1054, 1366 等
+      
+      // 重新抛出错误，让前端 trpc 能捕获到消息
+      throw error;
+    }
   });
 }
