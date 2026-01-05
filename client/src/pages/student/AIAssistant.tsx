@@ -51,7 +51,13 @@ export default function StudentAIAssistant() {
 
         utils.ai.getMessages.setData({ conversationId: activeId }, (old) => [
           ...(old || []),
-          { role: 'user', content: newItem.message, createdAt: new Date() }
+          {
+            id: Date.now(),
+            conversationId: activeId,
+            role: 'user',
+            content: newItem.message,
+            createdAt: new Date()
+          }
         ]);
 
         return { previousMessages };
