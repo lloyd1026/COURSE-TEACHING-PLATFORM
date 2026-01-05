@@ -22,6 +22,8 @@ import * as path from "path";
 import * as os from "os";
 import { promisify } from "util";
 
+import { emailService } from "./services/email.service";
+
 const execAsync = promisify(exec);
 
 // 分割路由导入
@@ -147,10 +149,31 @@ export const appRouter = router({
         const token = auth.generateResetToken();
         await auth.setUserResetToken(user.id, token);
 
-        // 3. 发送邮件（这里仅模拟打印日志）
-        // 在实际生产中，这里应该调用邮件服务
-        const resetLink = `http://${process.env.DOMAIN || 'localhost:5173'}/reset-password?token=${token}`;
-        console.log(`[Mock Email] To: ${user.email || user.username}, Reset Link: ${resetLink}`);
+        // 3. 发送邮件
+        // @ts-ignore
+        const domain = process.env.DOMAIN || 'localhost:5173';
+        const resetLink = `http://${domain}/reset-password?token=${token}`;
+
+        const subject = "重置您的密码 - 智慧教学平台";
+        const text = `您好，\n\n您收到了这封邮件是因为您请求重置密码。\n请点击以下链接重置密码：\n\n${resetLink}\n\n如果不 是您本人的操作，请忽略此邮件。`;
+        const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2>重置密码</h2>
+          <p>您好，</p>
+          <p>您收到了这封邮件是因为您请求重置密码。</p>
+          <p>请点击以下按钮重置密码（链接有效期1小时）：</p>
+          <a href="${resetLink}" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px;">重置密码</a>
+          <p style="margin-top: 20px; font-size: 12px; color: #666;">如果按钮无法点击，请复制以下链接到浏览器访问：<br>${resetLink}</p>
+        </div>
+      `;
+
+        // Async send (don't block response too long, or await if critical)
+        try {
+          await emailService.send(user.email || "", subject, text, html);
+        } catch (err) {
+          console.error("Failed to send reset email via SMTP", err);
+          // Fallback or just log, but still return success to avoid leaking user existence info if we want strict security
+        }
 
         return { success: true, message: "如果账号存在，重置链接已发送" };
       }),

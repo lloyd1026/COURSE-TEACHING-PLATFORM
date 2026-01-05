@@ -25,4 +25,8 @@ export const ENV = {
   // Forge API (Legacy/Optional)
   forgeApiUrl: process.env.FORGE_API_URL ?? "",
   forgeApiKey: process.env.FORGE_API_KEY ?? "",
+
+  // Email Configuration (Google SMTP)
+  smtpUser: process.env.SMTP_USER ?? "",
+  smtpPass: process.env.SMTP_PASS ?? "",
 };

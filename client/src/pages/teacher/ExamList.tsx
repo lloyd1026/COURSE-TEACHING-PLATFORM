@@ -14,6 +14,7 @@ import {
   Edit3,
   BookOpen,
   ChevronRight,
+  BarChart2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -144,7 +145,7 @@ export default function ExamList() {
         <div className="flex-shrink-0 space-y-6 mb-10">
           <SearchFilterBar onSearch={setSearch} placeholder="搜索考试标题..." />
           <FilterTabs value={statusFilter} onChange={setStatusFilter} options={Object.entries(STATUS_CONFIG).map(([key, cfg]: any) => ({ label: cfg.label, value: key }))} />
-          
+
           <FilterSlider
             label="授课课程"
             searchValue={courseSearch}
@@ -199,7 +200,7 @@ export default function ExamList() {
                           <ChevronRight className="h-5 w-5" />
                         </Button>
                       </Link>
-                      
+
                       <Button
                         variant="ghost"
                         size="icon"
@@ -209,6 +210,17 @@ export default function ExamList() {
                       >
                         {isExamLoading ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" /> : <Edit3 className="h-4.5 w-4.5" />}
                       </Button>
+
+                      <Link href={`/teacher/exams/${exam.id}/statistics`}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="查看统计"
+                          className="h-11 w-11 rounded-2xl bg-indigo-50 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all shadow-sm"
+                        >
+                          <BarChart2 className="h-4.5 w-4.5" />
+                        </Button>
+                      </Link>
 
                       <Button
                         variant="ghost"

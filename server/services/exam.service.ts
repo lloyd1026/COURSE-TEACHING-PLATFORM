@@ -469,6 +469,7 @@ export async function getExamStats(examId: number) {
   const db = await getDb();
   if (!db) throw new Error("数据库连接失败");
 
+  // 基本提交统计
   const submissionStats = await db
     .select({
       status: submissions.status,
@@ -495,11 +496,88 @@ export async function getExamStats(examId: number) {
     .innerJoin(students, eq(examClasses.classId, students.classId))
     .where(eq(examClasses.examId, examId));
 
+  // --- 高级统计 ---
+
+  // 1. 获取所有已评分的提交分数
+  const allSubmissions = await db
+    .select({
+      score: submissions.totalScore,
+    })
+    .from(submissions)
+    .where(
+      and(
+        eq(submissions.sourceId, examId),
+        eq(submissions.sourceType, "exam"),
+      )
+    );
+
+  const scores = allSubmissions.map(s => Number(s.score));
+  const avgScore = scores.length > 0
+    ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
+    : "0.0";
+  const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+  const minScore = scores.length > 0 ? Math.min(...scores) : 0;
+
+  // 2. 分数段分布
+  const distribution = [
+    { name: "0-59", min: 0, max: 59, count: 0 },
+    { name: "60-69", min: 60, max: 69, count: 0 },
+    { name: "70-79", min: 70, max: 79, count: 0 },
+    { name: "80-89", min: 80, max: 89, count: 0 },
+    { name: "90-100", min: 90, max: 100, count: 0 },
+  ];
+
+  scores.forEach(s => {
+    const bucket = distribution.find(d => s >= d.min && s <= d.max);
+    if (bucket) bucket.count++;
+  });
+
+  // 3. 题目分析 (错误率、正确率)
+  const questionAnalysisRaw = await db
+    .select({
+      questionId: submissionDetails.questionId,
+      title: questions.title,
+      type: questions.type,
+      count: sql<number>`count(*)`,
+      correctCount: sql<number>`sum(case when ${submissionDetails.isCorrect} = 1 then 1 else 0 end)`,
+    })
+    .from(submissionDetails)
+    .innerJoin(submissions, eq(submissionDetails.submissionId, submissions.id))
+    .innerJoin(questions, eq(submissionDetails.questionId, questions.id))
+    .where(
+      and(
+        eq(submissions.sourceId, examId),
+        eq(submissions.sourceType, "exam")
+      )
+    )
+    .groupBy(submissionDetails.questionId, questions.title, questions.type);
+
+  const questionAnalysis = questionAnalysisRaw.map(q => {
+    const total = Number(q.count);
+    const correct = Number(q.correctCount);
+    const accuracy = total > 0 ? ((correct / total) * 100).toFixed(1) : "0.0";
+    const errorRate = total > 0 ? (100 - Number(accuracy)).toFixed(1) : "0.0";
+
+    return {
+      id: q.questionId,
+      title: q.title,
+      type: q.type,
+      accuracy: Number(accuracy),
+      errorRate: Number(errorRate),
+      totalAttempts: total
+    };
+  });
+
   return {
     submitted,
     graded,
     pending: submitted - graded,
     totalStudents: totalResult?.count || 0,
+    avgScore: Number(avgScore),
+    maxScore,
+    minScore,
+    scoreDistribution: distribution,
+    questionAnalysis
   };
 }
 

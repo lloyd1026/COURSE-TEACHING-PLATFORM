@@ -43,6 +43,7 @@ import GradingDetail from "./pages/teacher/GradingDetail";
 // 教师考试批阅相关页面
 import ExamGradingList from "./pages/teacher/ExamGradingList";
 import ExamGradingDetail from "./pages/teacher/ExamGradingDetail";
+import ExamStatistics from "./pages/teacher/ExamStatistics";
 
 function Router() {
   return (
@@ -105,7 +106,10 @@ function Router() {
 
       {/* Teacher Exam Grading Routes */}
       <Route path="/teacher/exams/grading/:submissionId" component={ExamGradingDetail} />
+      {/* Teacher Exam Grading Routes */}
+      <Route path="/teacher/exams/grading/:submissionId" component={ExamGradingDetail} />
       <Route path="/teacher/exams/:examId/grading" component={ExamGradingList} />
+      <Route path="/teacher/exams/:id/statistics" component={ExamStatistics} />
 
       {/* Common Routes */}
       <Route path="/profile" component={Profile} />

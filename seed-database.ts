@@ -6,7 +6,7 @@ import {
     chapters, knowledgePoints, knowledgePointRelations,
     assignments, assignmentClasses, submissions as assignmentSubmissions,
     experiments, experimentSubmissions,
-    questions, exams, examQuestions
+    questions, exams, examQuestions, examClasses, submissionDetails
 } from './drizzle/schema.ts';
 import crypto from 'crypto';
 
@@ -268,6 +268,87 @@ async function seed() {
                 await db.insert(knowledgePointRelations).values({ questionId: qId, knowledgePointId: kpMap.get(q.kp) });
             }
         }
+
+        // 8. Exam Data (New Section)
+        console.log('Creating Exams...');
+        const examDate = new Date();
+        examDate.setDate(examDate.getDate() + 3); // Exam in 3 days (or recent past for stats)
+
+        // Create an exam that has "ended" to show statistics
+        const pastDate = new Date();
+        pastDate.setDate(pastDate.getDate() - 1);
+
+        const [examRes] = await db.insert(exams).values({
+            courseId,
+            title: '期中考试：基础知识综合',
+            description: '涵盖前三章内容：算法基础、线性表、树。',
+            startTime: new Date(Date.now() - 86400000 * 2), // 2 days ago
+            endTime: pastDate,
+            duration: 90,
+            totalScore: 100,
+            createdBy: teacherId,
+        });
+        const examId = examRes.insertId;
+
+        // Link Exam to Class
+        const { examClasses, submissionDetails } = await import('./drizzle/schema.ts');
+        await db.insert(examClasses).values({ examId, classId });
+
+        // Link Questions to Exam (Use the first 3 questions created above)
+        // Q1: O(n^2), Q2: Queue, Q3: O(log n)
+        const examQs = [
+            { qId: questionIds[0], score: 30, order: 1 },
+            { qId: questionIds[1], score: 30, order: 2 },
+            { qId: questionIds[2], score: 40, order: 3 },
+        ];
+
+        for (const eq of examQs) {
+            await db.insert(examQuestions).values({
+                examId,
+                questionId: eq.qId,
+                score: eq.score,
+                questionOrder: eq.order
+            });
+        }
+
+        // Create Submissions for this Exam (Student 1 & 2)
+        // Student 1: All correct
+        const [sub1] = await db.insert(assignmentSubmissions).values({ // Note: shared submissions table uses 'sourceType'
+            sourceId: examId,
+            sourceType: 'exam',
+            studentId: student1Id,
+            status: 'graded',
+            totalScore: '100.00',
+            submittedAt: new Date(Date.now() - 86400000 * 1.5), // 1.5 days ago
+        });
+        const sub1Id = sub1.insertId;
+
+        // Details for Student 1
+        await db.insert(submissionDetails).values([
+            { submissionId: sub1Id, questionId: questionIds[0], studentAnswer: 'O(n^2)', isCorrect: true, score: '30.00' },
+            { submissionId: sub1Id, questionId: questionIds[1], studentAnswer: '队列', isCorrect: true, score: '30.00' },
+            { submissionId: sub1Id, questionId: questionIds[2], studentAnswer: 'O(log n)', isCorrect: true, score: '40.00' },
+        ]);
+
+        // Student 2: 1 Wrong (Q2)
+        const [sub2] = await db.insert(assignmentSubmissions).values({
+            sourceId: examId,
+            sourceType: 'exam',
+            studentId: student2Id,
+            status: 'graded',
+            totalScore: '70.00',
+            submittedAt: new Date(Date.now() - 86400000 * 1.4),
+        });
+        const sub2Id = sub2.insertId;
+
+        // Details for Student 2
+        await db.insert(submissionDetails).values([
+            { submissionId: sub2Id, questionId: questionIds[0], studentAnswer: 'O(n^2)', isCorrect: true, score: '30.00' },
+            { submissionId: sub2Id, questionId: questionIds[1], studentAnswer: '栈', isCorrect: false, score: '0.00' }, // Wrong
+            { submissionId: sub2Id, questionId: questionIds[2], studentAnswer: 'O(log n)', isCorrect: true, score: '40.00' },
+        ]);
+
+        console.log('✓ Created Exam and Submissions for Stats');
 
         console.log('✅ Seeding completed! Teacher account should work now.');
         console.log('Teacher: teacher / 123456');
