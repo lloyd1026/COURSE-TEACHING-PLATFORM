@@ -216,3 +216,70 @@ export async function updateUserProfile(userId: number, input: { name?: string; 
     })
     .where(eq(users.id, userId));
 }
+
+/**
+ * 生成重置 Token
+ */
+export function generateResetToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * 保存用户的重置 Token
+ */
+export async function setUserResetToken(userId: number, token: string) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+
+  // 有效期 1 小时
+  const expiry = new Date(Date.now() + 3600000);
+
+  await db.update(users)
+    .set({
+      resetToken: token,
+      resetTokenExpiry: expiry
+    })
+    .where(eq(users.id, userId));
+}
+
+/**
+ * 验证 Token 并获取用户
+ */
+export async function getUserByResetToken(token: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db.select()
+    .from(users)
+    .where(eq(users.resetToken, token))
+    .limit(1);
+
+  const user = result[0];
+  if (!user || !user.resetTokenExpiry) return undefined;
+
+  // 检查是否过期
+  if (new Date() > user.resetTokenExpiry) {
+    return undefined;
+  }
+
+  return user;
+}
+
+/**
+ * 重置密码
+ */
+export async function resetPassword(userId: number, newPassword: string) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+
+  const hashedPassword = hashPassword(newPassword);
+
+  await db.update(users)
+    .set({
+      password: hashedPassword,
+      resetToken: null,
+      resetTokenExpiry: null,
+      updatedAt: new Date()
+    })
+    .where(eq(users.id, userId));
+}

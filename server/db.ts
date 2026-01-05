@@ -843,22 +843,29 @@ export async function deleteExam(id: number) {
 
 // ==================== 实验管理 ====================
 
-export async function getAllExperiments(courseId?: number) {
+export async function getAllExperiments(courseId?: number, teacherId?: number) {
   const db = await getDb();
   if (!db) return [];
 
-  if (courseId) {
-    return await db
-      .select()
-      .from(experiments)
-      .where(eq(experiments.courseId, courseId))
-      .orderBy(desc(experiments.createdAt));
-  }
-
-  return await db
+  let query = db
     .select()
     .from(experiments)
     .orderBy(desc(experiments.createdAt));
+
+  const conditions = [];
+  if (courseId) {
+    conditions.push(eq(experiments.courseId, courseId));
+  }
+  if (teacherId) {
+    conditions.push(eq(experiments.createdBy, teacherId));
+  }
+
+  if (conditions.length > 0) {
+    // @ts-ignore
+    query = query.where(and(...conditions));
+  }
+
+  return await query;
 }
 
 export async function getExperimentsByStudent(userId: number, courseId?: number) {
@@ -1431,7 +1438,10 @@ export async function getStatistics() {
     assignmentCount: 0,
     examCount: 0,
     questionCount: 0,
-    experimentCount: 0
+    experimentCount: 0,
+    roleDistribution: { student: 0, teacher: 0, admin: 0 },
+    recentUsers: [],
+    recentCourses: [],
   };
 
   // Helper to get count
@@ -1458,6 +1468,46 @@ export async function getStatistics() {
     getCount(experiments)
   ]);
 
+  // Role distribution
+  const roles = await db
+    .select({ role: users.role, count: sql<number>`count(*)` })
+    .from(users)
+    .groupBy(users.role);
+
+  const roleDistribution = { student: 0, teacher: 0, admin: 0 };
+  roles.forEach(r => {
+    if (r.role in roleDistribution) {
+      // @ts-ignore
+      roleDistribution[r.role] = r.count;
+    }
+  });
+
+  // Recent Users
+  const recentUsers = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      username: users.username,
+      role: users.role,
+      createdAt: users.createdAt
+    })
+    .from(users)
+    .orderBy(desc(users.createdAt))
+    .limit(5);
+
+  // Recent Courses
+  const recentCourses = await db
+    .select({
+      id: courses.id,
+      name: courses.name,
+      code: courses.code,
+      teacherId: courses.teacherId,
+      createdAt: courses.createdAt
+    })
+    .from(courses)
+    .orderBy(desc(courses.createdAt))
+    .limit(5);
+
   return {
     userCount,
     courseCount,
@@ -1465,7 +1515,10 @@ export async function getStatistics() {
     assignmentCount,
     examCount,
     questionCount,
-    experimentCount
+    experimentCount,
+    roleDistribution,
+    recentUsers,
+    recentCourses
   };
 }
 

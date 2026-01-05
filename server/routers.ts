@@ -128,6 +128,50 @@ export const appRouter = router({
           },
         };
       }),
+
+    forgotPassword: publicProcedure
+      .input(z.object({ emailOrUsername: z.string() }))
+      .mutation(async ({ input }) => {
+        // 1. 查找用户
+        let user = await auth.getUserByEmail(input.emailOrUsername);
+        if (!user) {
+          user = await auth.getUserByUsername(input.emailOrUsername);
+        }
+
+        if (!user) {
+          // 为了安全，不提示用户不存在
+          return { success: true, message: "如果账号存在，重置链接已发送" };
+        }
+
+        // 2. 生成 Token
+        const token = auth.generateResetToken();
+        await auth.setUserResetToken(user.id, token);
+
+        // 3. 发送邮件（这里仅模拟打印日志）
+        // 在实际生产中，这里应该调用邮件服务
+        const resetLink = `http://${process.env.DOMAIN || 'localhost:5173'}/reset-password?token=${token}`;
+        console.log(`[Mock Email] To: ${user.email || user.username}, Reset Link: ${resetLink}`);
+
+        return { success: true, message: "如果账号存在，重置链接已发送" };
+      }),
+
+    resetPassword: publicProcedure
+      .input(z.object({
+        token: z.string(),
+        newPassword: z.string().min(6, "密码至少6位")
+      }))
+      .mutation(async ({ input }) => {
+        // 1. 验证 Token
+        const user = await auth.getUserByResetToken(input.token);
+        if (!user) {
+          throw new Error("重置链接无效或已过期");
+        }
+
+        // 2. 重置密码
+        await auth.resetPassword(user.id, input.newPassword);
+
+        return { success: true };
+      }),
   }),
 
   // ==================== 统计数据 ====================
@@ -554,8 +598,10 @@ export const appRouter = router({
     // 获取实验列表
     list: protectedProcedure
       .input(z.object({ courseId: z.number().optional() }).optional())
-      .query(async ({ input }) => {
-        return await db.getAllExperiments(input?.courseId);
+      .query(async ({ ctx, input }) => {
+        // 如果是老师，只看自己创建的实验
+        const teacherId = ctx.user.role === 'teacher' ? ctx.user.id : undefined;
+        return await db.getAllExperiments(input?.courseId, teacherId);
       }),
 
     // 学生获取实验列表（包含提交状态）

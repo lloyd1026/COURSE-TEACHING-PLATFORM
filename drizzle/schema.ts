@@ -15,6 +15,8 @@ export const users = mysqlTable("users", {
   role: mysqlEnum("role", ["admin", "teacher", "student"]).default("student").notNull(),
   avatar: text("avatar"),  // 减少访问
   phone: varchar("phone", { length: 20 }),
+  resetToken: varchar("resetToken", { length: 255 }),
+  resetTokenExpiry: timestamp("resetTokenExpiry"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -135,7 +137,7 @@ export const assignments = mysqlTable("assignments", {
 export const assignmentClasses = mysqlTable("assignment_classes", {
   id: int("id").autoincrement().primaryKey(),
   assignmentId: int("assignmentId").notNull().references(() => assignments.id, { onDelete: "cascade" }),
-  classId: int("classId").notNull(), 
+  classId: int("classId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -207,21 +209,21 @@ export const examQuestions = mysqlTable("examQuestions", {
 export const submissions = mysqlTable("submissions", {
   id: int("id").autoincrement().primaryKey(),
   // 关联 ID：可以是 assignmentId 或 examId
-  sourceId: int("sourceId").notNull(), 
+  sourceId: int("sourceId").notNull(),
   // 来源类型：区分是作业还是考试
   sourceType: mysqlEnum("sourceType", ["assignment", "exam", "experiment"]).notNull(),
   studentId: int("studentId").notNull(),
-  
+
   status: mysqlEnum("status", ["in_progress", "submitted", "graded"]).default("in_progress").notNull(),
-  
+
   // 汇总数据
   totalScore: decimal("totalScore", { precision: 5, scale: 2 }),
   globalFeedback: text("globalFeedback"), // 老师的总评
-  
+
   submittedAt: timestamp("submittedAt"),
   gradedAt: timestamp("gradedAt"),
   gradedBy: int("gradedBy"),
-  
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -234,12 +236,12 @@ export const submissionDetails = mysqlTable("submissionDetails", {
   id: int("id").autoincrement().primaryKey(),
   submissionId: int("submissionId").notNull().references(() => submissions.id, { onDelete: "cascade" }),
   questionId: int("questionId").notNull(),
-  
+
   studentAnswer: text("studentAnswer"), // 学生答案（文本或 JSON 字符串）
   isCorrect: boolean("isCorrect"),      // 客观题自动判分结果
   score: decimal("score", { precision: 5, scale: 2 }), // 该题得分
   feedback: text("feedback"),           // 老师针对单题的批注
-  
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
