@@ -183,9 +183,9 @@ export async function getExamById(id: number) {
 
   // ⚡️ 修改点：通过 innerJoin 获取班级详情对象
   const classRelations = await db
-    .select({ 
-      id: classes.id, 
-      name: classes.name 
+    .select({
+      id: classes.id,
+      name: classes.name,
     })
     .from(examClasses)
     .innerJoin(classes, eq(examClasses.classId, classes.id)) // 关联班级表拿名字
@@ -211,7 +211,11 @@ export async function getExamById(id: number) {
   const processedQuestions = questionRelations.map(q => {
     let finalOptions = q.options;
     if (typeof q.options === "string") {
-      try { finalOptions = JSON.parse(q.options); } catch (e) { finalOptions = []; }
+      try {
+        finalOptions = JSON.parse(q.options);
+      } catch (e) {
+        finalOptions = [];
+      }
     }
     return { ...q, options: finalOptions };
   });
@@ -219,7 +223,7 @@ export async function getExamById(id: number) {
   return {
     ...exam,
     classIds: classRelations.map(r => r.id), // 供 Select 选择器用
-    targetClasses: classRelations,           // ✅ 供详情页显示班级名字用，解决报错
+    targetClasses: classRelations, // ✅ 供详情页显示班级名字用，解决报错
     questions: processedQuestions,
   };
 }
@@ -384,15 +388,31 @@ export async function submitExam(
         let isCorrect = false;
         let earnedScore = 0;
 
+        // ⚡️ 1. 标准化处理：去除空格、转大写、去除所有非字母字符（针对多选）
+        const studentAns = (ans.content || "")
+          .replace(/[^a-zA-Z]/g, "")
+          .toUpperCase();
+        const correctAns = (qRef.answer || "")
+          .replace(/[^a-zA-Z]/g, "")
+          .toUpperCase();
+
         const objectiveTypes = [
           "single_choice",
           "multiple_choice",
           "true_false",
         ];
+
         if (objectiveTypes.includes(qRef.type) && qRef.answer) {
-          const studentAns = (ans.content || "").trim().toUpperCase();
-          const correctAns = (qRef.answer || "").trim().toUpperCase();
-          isCorrect = studentAns === correctAns;
+          if (qRef.type === "multiple_choice") {
+            // ⚡️ 多选优化：排序后再比对，解决 AB/BA 顺序问题
+            const sSorted = studentAns.split("").sort().join("");
+            const cSorted = correctAns.split("").sort().join("");
+            isCorrect = sSorted === cSorted && sSorted.length > 0;
+          } else {
+            // 单选、判断：严格相等
+            isCorrect = studentAns === correctAns;
+          }
+
           earnedScore = isCorrect ? Number(qRef.maxScore || 0) : 0;
           totalAutoScore += earnedScore;
         }
@@ -400,9 +420,9 @@ export async function submitExam(
         return {
           submissionId,
           questionId: ans.questionId,
-          studentAnswer: ans.content,
-          isCorrect,
-          score: earnedScore.toFixed(2),
+          studentAnswer: ans.content, // 保留学生原始输入用于展示
+          isCorrect, // 存入数据库供前端图标展示
+          score: earnedScore.toFixed(2), // 存入数据库供前端 Input 回显
         };
       })
       .filter((v): v is NonNullable<typeof v> => v !== null);

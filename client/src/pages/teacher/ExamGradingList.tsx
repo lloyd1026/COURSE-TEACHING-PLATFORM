@@ -18,8 +18,8 @@ import {
 import { Link } from "wouter";
 
 export default function ExamGradingList() {
-  const { id } = useParams<{ id: string }>();
-  const examId = parseInt(id || "0");
+  const { examId: routeId } = useParams<{ examId: string }>();
+  const examId = parseInt(routeId || "0");
 
   // 1. 获取考试基本信息
   const { data: exam } = trpc.exams.get.useQuery({ id: examId });
