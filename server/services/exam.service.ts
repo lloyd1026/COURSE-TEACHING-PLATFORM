@@ -290,6 +290,22 @@ export async function submitExam(
   if (exam.endTime && now > new Date(exam.endTime)) {
     throw new Error("考试已结束，无法提交。");
   }
+  // 3. 核心校验：检查是否已提交过
+  const existingSubmission = await db
+    .select({ id: submissions.id })
+    .from(submissions)
+    .where(
+      and(
+        eq(submissions.studentId, userId),
+        eq(submissions.sourceId, input.examId),
+        eq(submissions.sourceType, "exam")
+      )
+    )
+    .limit(1);
+
+  if (existingSubmission.length > 0) {
+    throw new Error("您已提交过本场考试，无法重复提交。");
+  }
 
   return await db.transaction(async tx => {
     // 1. 获取题目和标准答案
