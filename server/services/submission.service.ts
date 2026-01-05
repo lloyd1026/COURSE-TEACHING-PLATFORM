@@ -260,6 +260,7 @@ export async function getSubmissionDetailForGrading(submissionId: number) {
       type: questions.type,
       options: questions.options,
       standardAnswer: questions.answer,
+      analysis: questions.analysis,
       studentAnswer: submissionDetails.studentAnswer,
       isCorrect: submissionDetails.isCorrect,
       score: submissionDetails.score,
